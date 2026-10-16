@@ -14,9 +14,12 @@ All four add-ons are installed and enabled:
 
 ## Install
 
-In Blender, open Edit > Preferences > Get Extensions, choose "Install from Disk" in the menu at the top right, and pick `dist/stub_switch-0.7.0.zip`. The panel is in the 3D Viewport sidebar (N), **Stub Switch** tab.
+In Blender, open Edit > Preferences > Get Extensions, choose "Install from Disk" in the menu at the top right, and pick `dist/stub_switch-0.8.0.zip`. The panel is in the 3D Viewport sidebar (N), **Stub Switch** tab.
 
 ## Use
+
+The **i** button in the Stub Switch panel's header turns the informational lines (summary, sizes, hints) on and off, so you can see just the settings. Errors and warnings are always shown.
+
 
 1. **Make the template tie.** In the Weathered Board panel, set a standard tie's prototype size (for example 8' 6" x 9" x 7" for HO mainline) and its look, and click Add Board. (Or save it as a Weathered Board preset.)
 2. **Frog and Track.** Pick a **frog preset** from Switch Frog Generator. It sets the frog number (the angle of the turnout), the flangeway, the frog's length and the rail profile, and the scale follows it. Choose **Left Hand** or **Right Hand**, the **Movable Rail Length** (15 to 24 ft on the prototype; longer rails make a gentler, longer turnout) and the **Throw** (Auto puts the straight and diverging rail ends side by side at the headblock). **Guard Rails** are on by default: they are a little shorter than the frog (the frog reaches **Frog Past Guard Rail**, 12 in, beyond each end; or choose Custom and enter a length), and each end bends in toward the middle of the track (**Bend Length** and **Bend Angle**).

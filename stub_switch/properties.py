@@ -361,6 +361,10 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
         name="File Name", default="stub_switch_{scale}_{frog}_{hand}.stl",
         description="Default STL file name; {scale}, {frog} and {hand} are filled in")
     last_report: StringProperty(default="", options={"HIDDEN"})
+    show_info: BoolProperty(
+        name="Show Info", default=True,
+        description="Show the informational lines in the panel (summary, sizes, hints). Turn "
+                    "off to see only the settings; errors and warnings are always shown")
 
     # ------------------------------------------------------------------
 
@@ -500,7 +504,7 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
     def switch_values(self) -> dict:
         """Every setting, for a switch preset (the template tie object is stored by name)."""
         skip = {"rna_type", "name", "proto_units_prev", "plate_modified", "switch_preset",
-                "switch_modified", "last_report", "export_what", "tie_object"}
+                "switch_modified", "last_report", "export_what", "tie_object", "show_info"}
         out = {p.identifier: getattr(self, p.identifier)
                for p in self.bl_rna.properties if p.identifier not in skip}
         out["tie_object_name"] = self.tie_object.name if self.tie_object else ""

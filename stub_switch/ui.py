@@ -119,8 +119,15 @@ def _preset_row(layout_, menu, label, current, modified, save_op):
     row.operator(save_op, text="", icon="ADD")
 
 
+def _info(context=None) -> bool:
+    """True when the informational lines are shown (Show Info in the main panel's header)."""
+    return (context or bpy.context).scene.stub_switch.show_info
+
+
 def _hint(col, *lines):
-    """Small grey info lines."""
+    """Small grey info lines, shown only with Show Info on."""
+    if not _info():
+        return
     sub = col.column()
     sub.scale_y = 0.8
     for i, line in enumerate(lines):
@@ -142,6 +149,12 @@ class STUBSWITCH_PT_main(_Panel, bpy.types.Panel):
 
     bl_label = "Stub Switch"
 
+    def draw_header(self, context):
+        """The Show Info toggle, beside the panel's name."""
+        s = _s(context)
+        self.layout.prop(s, "show_info", text="", icon="INFO" if s.show_info else "HIDE_ON",
+                         emboss=False)
+
     def draw(self, context):
         """Presets, Generate and Export, then a live summary or the layout errors."""
         s = _s(context)
@@ -162,16 +175,25 @@ class STUBSWITCH_PT_main(_Panel, bpy.types.Panel):
             row.enabled = not missing
             row.operator("stub_switch.generate", icon="MESH_GRID")
         col.operator("stub_switch.export_stl", icon="EXPORT")
-        if s.last_report:
+        show = s.show_info
+        if s.last_report and show:
             col.label(text=s.last_report)
 
         info, t, lay, _tmpl = compute(s)
-        box = col.box()
-        if lay.errors:
+        if lay.errors:  # problems are always shown
+            box = col.box()
             box.alert = True
             for e in lay.errors:
                 box.label(text=e, icon="ERROR")
             return
+        problems = t.warnings + lay.warnings
+        if not show:
+            if problems:
+                box = col.box()
+                for w in problems:
+                    box.label(text=w, icon="ERROR")
+            return
+        box = col.box()
         m = lay.summary
         n = s.scale_n()
         box.label(text=f"#{info.number:g} frog ({m['frog_angle']:.2f} deg), "
@@ -193,7 +215,7 @@ class STUBSWITCH_PT_main(_Panel, bpy.types.Panel):
             box.label(text=f"{len(lay.holes)} spike holes")
         elif s.fastening == "PRINTED":
             box.label(text=f"{len(lay.spikes)} printed spikes")
-        for w in t.warnings + lay.warnings:
+        for w in problems:
             box.label(text=w, icon="ERROR")
 
 
@@ -207,15 +229,17 @@ class STUBSWITCH_PT_track(_Panel, bpy.types.Panel):
         """Frog preset and what it sets, scale and gauge, hand, movable rails, guard rails."""
         s = _s(context)
         col = self.layout.column()
-        col.label(text="Frog preset (from Switch Frog Generator):")
+        if s.show_info:
+            col.label(text="Frog preset (from Switch Frog Generator):")
         col.menu("STUBSWITCH_MT_frog_presets", text=s.frog_name() or "Choose a frog preset",
                  icon="IPO_LINEAR")
         info, err = s.frog()
-        box = col.box()
         if info is None:
+            box = col.box()
             box.alert = True
             box.label(text=err, icon="ERROR")
-        else:
+        elif s.show_info:
+            box = col.box()
             p = info.profile
             box.label(text=f"#{info.number:g} frog, {info.angle_deg:.3f} deg, "
                            f"{info.length:.1f} mm long")
@@ -248,7 +272,7 @@ class STUBSWITCH_PT_track(_Panel, bpy.types.Panel):
         sub.prop(s, "guard_flare_length", text=f"Bend Length ({u})")
         sub.prop(s, "guard_flare_angle", text="Bend Angle (degrees)")
         _info, t, _lay, _tmpl = compute(s)
-        if s.guard_rails and t.ok:
+        if s.guard_rails and t.ok and s.show_info:
             g0, g1 = t.guard_span
             sub.label(text=f"Guard rails {g1 - g0:.1f} mm "
                            f"({scales.feet_inches((g1 - g0) * s.scale_n())})", icon="INFO")
@@ -273,11 +297,12 @@ class STUBSWITCH_PT_ties(_Panel, bpy.types.Panel):
             col.menu("STUBSWITCH_MT_board_presets", text=s.board_preset or "Choose a tie preset",
                      icon="MESH_PLANE")
         tmpl, err = s.template()
-        box = col.box()
         if tmpl is None:
+            box = col.box()
             box.alert = True
             box.label(text=err, icon="ERROR")
-        else:
+        elif s.show_info:
+            box = col.box()
             box.label(text=f"Standard tie {scales.feet_inches(tmpl.length)} x "
                            f"{scales.feet_inches(tmpl.width)} x {scales.feet_inches(tmpl.thickness)}")
             n = s.scale_n()
