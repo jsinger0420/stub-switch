@@ -216,6 +216,7 @@ class Spec:
     headblock_plate_thickness: float = 19.05  # full-size mm, used when tie plates are off
     plate_margin: float = 0.2  # model mm the headblock plate reaches past its clips
     throw_stops: bool = True  # stops on the tie before the headblock limiting the movable rails
+    stops_every_tie: bool = False  # also on every tie under the movable rails, past the heel
     stop_width: float = 0.5  # model mm across the track
     stop_clearance: float = 0.15  # model mm between a stop and the rail foot at the end of travel
     stop_height: float = 0.0  # model mm above the rail seat; 0 = the foot's thickness at the web
@@ -764,7 +765,9 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
     **Throw stops.** On the tie before the headblock tie, each movable rail
     gets a block on each side, just clear of its foot at the two ends of its
     travel (lined up with the straight route, and thrown), so it can't be
-    pushed past either route.
+    pushed past either route. With ``stops_every_tie`` every other tie under
+    the movable rails, from the heel on, gets them too, set to the rail's
+    travel at that tie and bolted only on the rail's outside.
 
     **Bolts.** With ``bolts`` on, hex bolt heads fasten the hardware to the
     ties: two at each end of each headblock plate, past the clips; and each
@@ -821,35 +824,57 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
     if s.throw_stops:
         before = [tie for tie in lay.ties if tie.x < -1e-9]
         if before:
-            tie = before[-1]  # the tie just before the headblock tie
-            w = float(turnout_bend(t, tie.x))
-            c, sw = s.stop_clearance, s.stop_width
-            h_stop = s.stop_height if s.stop_height > 0 else max(s.foot_web, s.foot_edge, 0.2)
-            z1 = lay.seat + h_stop
-            bs, bh = s.model(s.bolt_size), s.model(s.bolt_height)
-            base_t = min(s.model(s.stop_plate_thickness), h_stop / 2)
-            x0, x1 = tie.x - wt / 2 + 0.1, tie.x + wt / 2 - 0.1
-            for y in (t.rail_y, -t.rail_y):
-                # (block's near face, away from the rail: -1 below the rail, +1 above it)
-                for near, away in ((y - half_foot - c, -1), (y + w + half_foot + c, 1)):
-                    far = near + away * sw
-                    lay.stops.append(Box(x0, x1, max(min(near, far), tie.y0),
-                                         min(max(near, far), tie.y1), ht - embed, z1))
-                    if not s.bolts:
-                        continue
-                    # A base plate reaching away from the rail, bolted to the tie.
-                    # It starts inside the block and stops short of the block's ends, so no
-                    # faces of the two coincide (touching faces don't join cleanly).
-                    edge = far + away * (bs + 0.2)
-                    lo, hi = sorted((far - away * sw / 2, edge))
-                    lay.stops.append(Box(x0 + 0.05, x1 - 0.05, max(lo, tie.y0),
-                                         min(hi, tie.y1), ht - embed - 0.01, lay.seat + base_t))
-                    yb = far + away * (0.1 + bs / 2)
-                    for xb in (tie.x - wt / 4, tie.x + wt / 4):
-                        lay.bolts.append(hex_bolt(xb, yb, bs, lay.seat + base_t - 0.02,
-                                                  lay.seat + base_t + bh))
+            # The tie just before the headblock tie: stops both sides, both bolted.
+            z1 = _throw_stops(t, s, lay, before[-1], embed, outside_only=False)
             top = max(top, z1)
+            if s.stops_every_tie:
+                # Every other tie under the movable rails, between the heel (where the
+                # rails are spiked) and that tie: bolted only on the rail's outside.
+                for tie in before[:-1]:
+                    if tie.x > -t.movable_length + 1e-6:
+                        _throw_stops(t, s, lay, tie, embed, outside_only=True)
     return top
+
+
+def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
+                 outside_only: bool) -> float:
+    """Throw stops on ``tie``: a block each side of each movable rail. Returns their top.
+
+    Each block is just clear of the rail foot at one end of the rail's
+    travel there: lined up with the straight route, or thrown (moved over
+    by the bend at this tie). With bolts on, a block stands on a thin base
+    plate reaching away from the rail, held by two bolts: on both blocks,
+    or with ``outside_only`` just the one on the rail's outside (field side).
+    """
+    half_foot, wt, ht = s.foot_width / 2, lay.tie_width, lay.tie_height
+    w = float(turnout_bend(t, tie.x))
+    c, sw = s.stop_clearance, s.stop_width
+    h_stop = s.stop_height if s.stop_height > 0 else max(s.foot_web, s.foot_edge, 0.2)
+    z1 = lay.seat + h_stop
+    bs, bh = s.model(s.bolt_size), s.model(s.bolt_height)
+    base_t = min(s.model(s.stop_plate_thickness), h_stop / 2)
+    x0, x1 = tie.x - wt / 2 + 0.1, tie.x + wt / 2 - 0.1
+    for y in (t.rail_y, -t.rail_y):
+        outside = 1 if y > 0 else -1  # the field side of this rail
+        # (block's near face, away from the rail: -1 below the rail, +1 above it)
+        for near, away in ((y - half_foot - c, -1), (y + w + half_foot + c, 1)):
+            far = near + away * sw
+            lay.stops.append(Box(x0, x1, max(min(near, far), tie.y0),
+                                 min(max(near, far), tie.y1), ht - embed, z1))
+            if not s.bolts or (outside_only and away != outside):
+                continue
+            # A base plate reaching away from the rail, bolted to the tie. It starts
+            # inside the block and stops short of the block's ends, so no faces of the
+            # two coincide (touching faces don't join cleanly).
+            edge = far + away * (bs + 0.2)
+            lo, hi = sorted((far - away * sw / 2, edge))
+            lay.stops.append(Box(x0 + 0.05, x1 - 0.05, max(lo, tie.y0), min(hi, tie.y1),
+                                 ht - embed - 0.01, lay.seat + base_t))
+            yb = far + away * (0.1 + bs / 2)
+            for xb in (tie.x - wt / 4, tie.x + wt / 4):
+                lay.bolts.append(hex_bolt(xb, yb, bs, lay.seat + base_t - 0.02,
+                                          lay.seat + base_t + bh))
+    return z1
 
 
 def hex_bolt(x: float, y: float, across_flats: float, z0: float, z1: float) -> Prism:

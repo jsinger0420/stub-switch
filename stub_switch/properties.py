@@ -325,6 +325,11 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
         name="Throw Stops", default=True, update=_changed,
         description="Blocks on the tie before the headblock tie, either side of each movable "
                     "rail, that stop it at the straight and at the diverging route")
+    stops_every_tie: BoolProperty(
+        name="On Every Movable Tie", default=False, update=_changed,
+        description="Also put throw stops on every tie under the movable rails, from the heel "
+                    "to the headblock, each set to the rail's travel at that tie. These are "
+                    "bolted only on the outside of the rail")
     stop_width: _model("Stop Width", 0.5, "Width of each throw stop across the track")
     stop_clearance: _model("Stop Clearance", 0.15,
                            "Play between a throw stop and the rail foot at each end of travel")
@@ -456,7 +461,8 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
             headblock_plate=self.headblock_plate,
             headblock_plate_thickness=f("headblock_plate_thickness"),
             bolts=self.bolts, bolt_size=f("bolt_size"), bolt_height=f("bolt_height"),
-            throw_stops=self.throw_stops, stop_width=self.stop_width,
+            throw_stops=self.throw_stops, stops_every_tie=self.stops_every_tie,
+            stop_width=self.stop_width,
             stop_clearance=self.stop_clearance,
             split=self.split, split_at=self.split_at, tab_depth=self.tab_depth,
             joint_clearance=self.joint_clearance,

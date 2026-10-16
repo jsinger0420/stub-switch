@@ -462,6 +462,7 @@ class STUBSWITCH_PT_headblock(_Panel, bpy.types.Panel):
         col.prop(s, "throw_stops")
         sub = col.column()
         sub.enabled = s.throw_stops
+        sub.prop(s, "stops_every_tie")
         sub.prop(s, "stop_width", text="Stop Width (mm)")
         sub.prop(s, "stop_clearance", text="Stop Clearance (mm)")
         col.separator()

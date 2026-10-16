@@ -367,6 +367,38 @@ class TestLayout(unittest.TestCase):
         none = layout.compute(self.t, ho_ties(headblock_plate=False, throw_stops=False))
         self.assertEqual((none.hb_plates, none.clips, none.stops), ([], [], []))
 
+    def test_stops_on_every_movable_tie(self):
+        """Optional stops on every movable tie, bolted only on each rail's outside."""
+        t = self.t
+        base = layout.compute(t, ho_ties())
+        every = layout.compute(t, ho_ties(stops_every_tie=True))
+        near = max(tie.x for tie in every.ties if tie.x < 0)
+        movable = [tie for tie in every.ties if -t.movable_length < tie.x < near]
+        self.assertGreater(len(movable), 5)
+        wt = every.tie_width
+
+        def on(items, tie, key):
+            return [b for b in items if abs(key(b) - tie.x) < wt / 2]
+
+        for tie in movable:
+            blocks = [b for b in on(every.stops, tie, lambda b: (b.x0 + b.x1) / 2)
+                      if b.z1 > every.seat + 0.3]
+            self.assertEqual(len(blocks), 4)
+            bolts = on(every.bolts, tie, lambda b: sum(p[0] for p in b.outline) / 6)
+            self.assertEqual(len(bolts), 4)  # two per rail, outside only
+            ys = [sum(p[1] for p in b.outline) / 6 for b in bolts]
+            self.assertTrue(all(abs(y) > t.rail_y for y in ys))
+            w = layout.turnout_bend(t, tie.x)
+            left = sorted((b for b in blocks if b.y0 > 0), key=lambda b: b.y0)
+            self.assertAlmostEqual(left[1].y0, t.rail_y + w + 1.855 / 2 + 0.15)
+        # The stop tie next to the headblock is unchanged: bolted both sides.
+        self.assertEqual(len(on(every.bolts, next(x for x in every.ties if x.x == near),
+                                lambda b: sum(p[0] for p in b.outline) / 6)), 8)
+        heel = [tie for tie in every.ties if tie.x <= -t.movable_length]
+        for tie in heel:  # no stops where the rails are spiked
+            self.assertEqual(on(every.stops, tie, lambda b: (b.x0 + b.x1) / 2), [])
+        self.assertEqual(len(base.stops), 8)
+
     def test_overlapping_ties(self):
         """Spacing no more than the tie width is an error."""
         lay = layout.compute(self.t, ho_ties(spacing=8 * IN))
