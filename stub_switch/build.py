@@ -272,6 +272,9 @@ def add_frog(info, t, lay, strip, coll, mirror: bool) -> tuple[object, str]:
     return obj, ""
 
 
+EXACT_LIMIT = 60000  # triangles; the Exact Boolean is too slow on bigger pieces
+
+
 def _piece(name, ties, parts, holes, coll, solver):
     """One printed piece: ties joined to their parts, holes and sockets cut. (obj, open edges, solver)."""
     base = _new_object(name, *ties, coll)
@@ -280,18 +283,17 @@ def _piece(name, ties, parts, holes, coll, solver):
     for helper in adds + cutters:
         helper.hide_render = True
         helper.display_type = "WIRE"
-    if meshgen.open_edges(ties[1]) != 0:
+    if meshgen.open_edges(ties[1]) != 0 and len(ties[1]) <= EXACT_LIMIT:
         solver = "EXACT"
     try:
         verts, tris = _boolean(base, adds, cutters, solver)
-        if solver == "MANIFOLD" and (len(tris) == 0 or meshgen.open_edges(tris) > 0):
-            # Try Exact, but keep Manifold's result if Exact does no better: on these
-            # meshes Exact can drop whole ties, while Manifold's few open edges (where
-            # two parts just touch) are harmless to a slicer.
-            v2, t2 = _boolean(base, adds, cutters, "EXACT")
-            ok2 = len(t2) >= 0.5 * len(ties[1])
-            if ok2 and (len(tris) == 0 or meshgen.open_edges(t2) < meshgen.open_edges(tris)):
-                verts, tris, solver = v2, t2, "EXACT"
+        if solver == "MANIFOLD" and len(tris) == 0 and len(ties[1]) <= EXACT_LIMIT:
+            # Manifold gave nothing: try Exact. It is only tried on small pieces, since
+            # on a whole turnout it can run for many minutes (Blender looks hung) and
+            # it can drop whole ties. Manifold's few open edges, where two parts just
+            # touch, are left as they are: slicers handle them.
+            verts, tris = _boolean(base, adds, cutters, "EXACT")
+            solver = "EXACT"
     finally:
         for helper in adds + cutters:
             mesh = helper.data

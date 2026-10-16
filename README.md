@@ -14,7 +14,7 @@ All four add-ons are installed and enabled:
 
 ## Install
 
-In Blender, open Edit > Preferences > Get Extensions, choose "Install from Disk" in the menu at the top right, and pick `dist/stub_switch-0.10.0.zip`. The panel is in the 3D Viewport sidebar (N), **Stub Switch** tab.
+In Blender, open Edit > Preferences > Get Extensions, choose "Install from Disk" in the menu at the top right, and pick `dist/stub_switch-0.10.1.zip`. The panel is in the 3D Viewport sidebar (N), **Stub Switch** tab.
 
 ## Use
 
