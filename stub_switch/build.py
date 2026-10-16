@@ -373,6 +373,7 @@ def generate(context, progress=None) -> BuildResult:
                                           + (lay.tabs if k == 1 else []))),
             ("RailSeats", meshgen.boxes([b for b in lay.seats if side(b.x0) == k])),
             ("TiePlates", meshgen.boxes([b for b in lay.plates if side(b.x0) == k])),
+            ("Footings", meshgen.boxes([b for b in lay.footings if side(b.x0) == k])),
             ("Shoulders", meshgen.prisms([b for b in lay.shoulders
                                           if side(b.outline[0][0]) == k])),
             ("Spikes", meshgen.spikes([sp for sp in lay.spikes if side(sp.cx) == k])),

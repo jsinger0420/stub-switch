@@ -265,6 +265,7 @@ class Layout:
     plates: list[Box] = field(default_factory=list)
     shoulders: list[Prism] = field(default_factory=list)
     seats: list[Box] = field(default_factory=list)
+    footings: list[Box] = field(default_factory=list)  # fill the grain under plates and stops
     holes: list[Hole] = field(default_factory=list)
     spikes: list[Spike] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -437,6 +438,7 @@ def compute(t: Turnout, s: Spec) -> Layout:
 
     longest = max(lay.ties, key=lambda tie: tie.length)
     lay.summary = {
+        "plate_width": min(s.model(s.plate_width), wt - 2 * plate_edge(s, wt)) if s.plates else 0.0,
         "ties": float(len(lay.ties)),
         "tie_length": lt, "tie_width": wt, "tie_height": ht,
         "longest_tie": longest.length, "longest_tie_full": longest.length * s.scale_n,
@@ -453,6 +455,56 @@ def compute(t: Turnout, s: Spec) -> Layout:
         "connector_height": s.connector_height_frac * ht,
     }
     return lay
+
+
+SLAB_SINK = 0.05  # model mm a plate or stop sinks into the tie top, so they join
+
+
+def _edge(s: Spec) -> float:
+    """How far in from a tie's sides and ends parts on top of it stay, model mm.
+
+    The weathered ties' edges are worn round; a part reaching to the edge
+    would hang down over them and look wrapped around the tie.
+    """
+    return max(s.seat_inset - 0.1, 0.05)
+
+
+PLATE_EDGE = 0.12  # of the tie width: tie left showing each side of a plate (about 1 in of 9 in)
+
+
+def plate_edge(s: Spec, wt: float) -> float:
+    """How far in from a tie's sides a plate stays, model mm, so the tie shows each side."""
+    return max(_edge(s) + 0.1, PLATE_EDGE * wt)
+
+
+def _on_tie(s: Spec, lay: Layout, tie: Tie, x0: float, x1: float, y0: float, y1: float,
+            z1: float, embed: float, footing: bool = True) -> Box | None:
+    """A part sitting on ``tie``, kept inside its top: the slab, and a footing under it.
+
+    The slab sinks ``SLAB_SINK`` into the tie top. Below it the footing,
+    set well in from the tie's worn sides and ends, fills the grain down to
+    ``embed`` so the part joins the tie solidly without showing on its sides.
+    Returns the slab (None if nothing of it is left on the tie).
+    """
+    wt, e = lay.tie_width, _edge(s)
+    x0, x1 = max(x0, tie.x - wt / 2 + e), min(x1, tie.x + wt / 2 - e)
+    y0, y1 = max(y0, tie.y0 + e), min(y1, tie.y1 - e)
+    if x1 - x0 <= 1e-6 or y1 - y0 <= 1e-6:
+        return None
+    if footing:
+        _footing(s, lay, tie, x0, x1, y0, y1, embed)
+    return Box(x0, x1, y0, y1, lay.tie_height - tie.lowered - SLAB_SINK, z1)
+
+
+def _footing(s: Spec, lay: Layout, tie: Tie, x0: float, x1: float, y0: float, y1: float,
+             embed: float) -> None:
+    """Fill the tie's grain under a part, set in from the tie's worn sides and ends."""
+    wt, top = lay.tie_width, lay.tie_height - tie.lowered
+    i = max(s.seat_inset, _edge(s) + 0.1)
+    x0, x1 = max(x0, tie.x - wt / 2 + i), min(x1, tie.x + wt / 2 - i)
+    y0, y1 = max(y0, tie.y0 + i), min(y1, tie.y1 - i)
+    if x1 - x0 > 1e-6 and y1 - y0 > 1e-6 and embed > SLAB_SINK:
+        lay.footings.append(Box(x0, x1, y0, y1, top - embed, top - SLAB_SINK + 0.02))
 
 
 def _frame(pts: np.ndarray, x: float) -> tuple[float, float]:
@@ -477,8 +529,8 @@ def _plates(t: Turnout, s: Spec, lay: Layout, lines, tp: float, embed: float) ->
     wt, ht = lay.tie_width, lay.tie_height
     half_foot, cs = s.foot_width / 2, s.shoulder_clearance
     ws, hs = s.model(s.shoulder_width), s.model(s.shoulder_height)
-    if wp > wt:
-        lay.warnings.append(f"Tie plates ({wp:.2f} mm) are wider than the ties ({wt:.2f} mm).")
+    # Plates sit on the tie top, narrower than the tie, so the tie shows each side.
+    wp = min(wp, wt - 2 * plate_edge(s, wt))
     if half_foot > lp / 2 - abs(bias):
         lay.errors.append("The rail foot is wider than the tie plate allows; lengthen the plate "
                           "or reduce the field-side bias.")
@@ -501,7 +553,9 @@ def _plates(t: Turnout, s: Spec, lay: Layout, lines, tp: float, embed: float) ->
         for a, b in merged:
             a, b = max(a, tie.y0), min(b, tie.y1)
             if b - a > 1e-6:
-                lay.plates.append(Box(xa, xb, a, b, ht - embed, ht + tp))
+                plate = _on_tie(s, lay, tie, xa, xb, a, b, ht + tp, embed)
+                if plate:
+                    lay.plates.append(plate)
         if s.shoulders == SHOULDERS_NONE:
             continue
         for ln, pts in lines:
@@ -815,7 +869,7 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
         seat = z_plate + tp
         gap = t.half_gap
         u0 = max(gap, std_tie.x - wt / 2) + 0.05  # clips over the fixed rails' tie
-        u1 = std_tie.x + wt / 2 - 0.15
+        u1 = std_tie.x + wt / 2 - plate_edge(s, wt) - 0.1  # inside the plate's end
         a, o = s.spike_shank, s.spike_overhang
         cp, cv, th = s.spike_side_clear, s.spike_top_clear, s.spike_head
         under, z_under, _flat = spike_underside(s, half_foot)
@@ -829,12 +883,14 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
         if s.throw_stops:  # standing on the plate, over the long tie
             n0 = len(lay.stops)
             top = max(top, _throw_stops(t, s, lay, long_tie, embed, outside_only=False,
-                                        z0=z_plate - embed))
+                                        z0=z_plate - SLAB_SINK))
             stop_boxes = lay.stops[n0:]
         bs, bh = s.model(s.bolt_size), s.model(s.bolt_height)
         bolt_zone = bs + 0.2 if s.bolts else 0.0  # room at each end of the plate for its bolts
         margin = max(s.plate_margin, bolt_zone)
-        px0, px1 = long_tie.x - wt / 2 + 0.05, std_tie.x + wt / 2 - 0.05
+        e = _edge(s)  # stays inside the double tie's worn edges
+        pe = plate_edge(s, wt)  # and narrower than the ties, like the tie plates
+        px0, px1 = long_tie.x - wt / 2 + pe, std_tie.x + wt / 2 - pe
         for sign in (1, -1):
             pair = sorted((st for st in stubs if st[0] * sign > 0), key=lambda st: abs(st[0]))
             if not pair:
@@ -846,9 +902,11 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
             for b in stop_boxes:
                 if (b.y0 + b.y1) / 2 * sign > 0:
                     lo, hi = min(lo, b.y0), max(hi, b.y1)
-            y0 = max(lo - margin, long_tie.y0, std_tie.y0)
-            y1 = min(hi + margin, long_tie.y1, std_tie.y1)
-            lay.hb_plates.append(Box(px0, px1, y0, y1, z_plate - embed, seat))
+            y0 = max(lo - margin, long_tie.y0 + e, std_tie.y0 + e)
+            y1 = min(hi + margin, long_tie.y1 - e, std_tie.y1 - e)
+            lay.hb_plates.append(Box(px0, px1, y0, y1, z_plate - SLAB_SINK, seat))
+            for tie in unit:
+                _footing(s, lay, tie, px0, px1, y0, y1, embed)
             if s.bolts:  # two bolts per tie at each end of the plate, past the clips and stops
                 for yb in (y0 + 0.1 + bs / 2, y1 - 0.1 - bs / 2):
                     for tie in unit:
@@ -893,11 +951,11 @@ def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
     h_stop = s.stop_height if s.stop_height > 0 else max(s.foot_web, s.foot_edge, 0.2)
     z1 = lay.seat + h_stop
     on_plate = z0 is not None
-    if z0 is None:
-        z0 = ht - embed
     bs, bh = s.model(s.bolt_size), s.model(s.bolt_height)
     base_t = min(s.model(s.stop_plate_thickness), h_stop / 2)
-    x0, x1 = tie.x - wt / 2 + 0.1, tie.x + wt / 2 - 0.1
+    e = _edge(s)
+    inset = plate_edge(s, wt) + 0.1 if on_plate else max(e, 0.1)  # on the plate: inside it
+    x0, x1 = tie.x - wt / 2 + inset, tie.x + wt / 2 - inset
     for y in (t.rail_y, -t.rail_y):
         outside = 1 if y > 0 else -1  # the field side of this rail
         # (block's near face, away from the rail: -1 below the rail, +1 above it)
@@ -905,17 +963,28 @@ def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
             if outside_only and away != outside:
                 continue  # the movable ties get a stop on the rail's outside only
             far = near + away * sw
-            lay.stops.append(Box(x0, x1, max(min(near, far), tie.y0),
-                                 min(max(near, far), tie.y1), z0, z1))
-            if on_plate or not s.bolts:
+            b0, b1 = sorted((near, far))
+            if on_plate:  # standing on the headblock plate
+                lay.stops.append(Box(x0, x1, max(b0, tie.y0 + e), min(b1, tie.y1 - e), z0, z1))
+                continue
+            block = _on_tie(s, lay, tie, x0, x1, b0, b1, z1, embed, footing=not s.bolts)
+            if block is None:
+                continue
+            lay.stops.append(block)
+            if not s.bolts:
                 continue
             # A base plate reaching away from the rail, bolted to the tie. It starts
             # inside the block and stops short of the block's ends, so no faces of the
             # two coincide (touching faces don't join cleanly).
             edge = far + away * (bs + 0.2)
             lo, hi = sorted((far - away * sw / 2, edge))
-            lay.stops.append(Box(x0 + 0.05, x1 - 0.05, max(lo, tie.y0), min(hi, tie.y1),
-                                 ht - embed - 0.01, lay.seat + base_t))
+            base = _on_tie(s, lay, tie, x0 + 0.05, x1 - 0.05, lo, hi, lay.seat + base_t, embed,
+                           footing=False)
+            if base is None:
+                continue
+            # Sunk a little deeper than the block, so their bottoms don't coincide.
+            lay.stops.append(Box(base.x0, base.x1, base.y0, base.y1, base.z0 - 0.01, base.z1))
+            _footing(s, lay, tie, x0, x1, min(b0, lo), max(b1, hi), embed)
             yb = far + away * (0.1 + bs / 2)
             for xb in (tie.x - wt / 4, tie.x + wt / 4):
                 lay.bolts.append(hex_bolt(xb, yb, bs, lay.seat + base_t - 0.02,

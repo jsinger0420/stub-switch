@@ -207,6 +207,11 @@ class STUBSWITCH_PT_main(_Panel, bpy.types.Panel):
                        f"{m['top']:.2f} mm")
         box.label(text=f"{len(lay.ties)} ties, longest {m['longest_tie']:.1f} mm "
                        f"({scales.feet_inches(m['longest_tie_full'])})")
+        if s.plates_on and m.get("plate_width"):
+            wp = m["plate_width"]
+            narrowed = wp < s.full_mm("plate_width") / n - 1e-6
+            box.label(text=f"Tie plates {wp:.2f} mm wide ({scales.feet_inches(wp * n)})"
+                           + (", narrowed to fit the ties" if narrowed else ""))
         if lay.split_x is not None:
             n_mov = sum(1 for tie in lay.ties if tie.x < lay.split_x)
             box.label(text=f"Two pieces: {n_mov} ties movable, {len(lay.ties) - n_mov} fixed, "

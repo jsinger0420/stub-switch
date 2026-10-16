@@ -334,6 +334,34 @@ class TestLayout(unittest.TestCase):
         yr = self.t.rail_y
         self.assertTrue(any(yr - 1.5 < y < yr for y in on_hb))  # inner rail, gauge side
 
+    def test_plates_sit_on_the_ties(self):
+        """Tie plates sit on top, narrower than the tie; a hidden footing fills the grain."""
+        inset = 0.3  # the worn sides of the weathered ties (side grain depth + 0.1)
+        lay = layout.compute(self.t, ho_ties(plates=True, seat_depth=0.32, seat_pad=True,
+                                             seat_inset=inset))
+        self.assertTrue(lay.ok, lay.errors)
+        wt, ht = lay.tie_width, lay.tie_height
+        pe = layout.plate_edge(ho_ties(seat_inset=inset), wt)
+        self.assertAlmostEqual(lay.summary["plate_width"], wt - 2 * pe)
+        self.assertLess(lay.summary["plate_width"], 7.75 * IN / N)  # narrowed to fit
+        ties = {round(tie.x, 6): tie for tie in lay.ties}
+        for b in lay.plates:
+            tie = ties[round((b.x0 + b.x1) / 2, 6)]
+            self.assertAlmostEqual(b.z0, ht - layout.SLAB_SINK)  # sits on the top
+            self.assertGreaterEqual(b.x0, tie.x - wt / 2 + pe - 1e-9)
+            self.assertLessEqual(b.x1, tie.x + wt / 2 - pe + 1e-9)
+            self.assertGreaterEqual(b.y0, tie.y0 + inset - 0.1 - 1e-9)
+            self.assertLessEqual(b.y1, tie.y1 - inset + 0.1 + 1e-9)
+        self.assertEqual(len(lay.footings), len(lay.plates) + 2 * len(lay.hb_plates))
+        for f in lay.footings:  # well inside the tie, down into the grain, under the slab
+            tie = min(lay.ties, key=lambda tie: abs(tie.x - (f.x0 + f.x1) / 2))
+            self.assertGreaterEqual(f.x0, tie.x - wt / 2 + inset - 1e-9)
+            self.assertLessEqual(f.x1, tie.x + wt / 2 - inset + 1e-9)
+            self.assertAlmostEqual(f.z0, ht - (0.32 + 0.02))
+            self.assertGreater(f.z1, ht - layout.SLAB_SINK)
+        narrow = layout.compute(self.t, ho_ties(plates=True, plate_width=5 * IN))
+        self.assertAlmostEqual(narrow.summary["plate_width"], 5 * IN / N)  # left as set
+
     def test_headblock_plate_and_stops(self):
         """One headblock unit per side across the double tie: plate, four clips, stops."""
         t, lay = self.t, layout.compute(self.t, ho_ties())
@@ -348,8 +376,10 @@ class TestLayout(unittest.TestCase):
         for b in lay.hb_plates:
             self.assertAlmostEqual(b.z1, ht)  # plate top level with the other ties' tops
             # One unit spanning the double tie, centred on the headblock.
-            self.assertAlmostEqual(b.x0, long_tie.x - wt / 2 + 0.05)
-            self.assertAlmostEqual(b.x1, std_tie.x + wt / 2 - 0.05)
+            pe = layout.plate_edge(ho_ties(), wt)  # narrower than the ties, like tie plates
+            self.assertAlmostEqual(b.x0, long_tie.x - wt / 2 + pe)
+            self.assertAlmostEqual(b.x1, std_tie.x + wt / 2 - pe)
+            self.assertAlmostEqual(b.z0, ht - tp - layout.SLAB_SINK)  # on the lowered ties
             self.assertAlmostEqual(b.x0 + b.x1, 0.0)
         self.assertEqual(len(lay.clips), 4)
         for c in lay.clips:  # over the fixed rails' tie only
