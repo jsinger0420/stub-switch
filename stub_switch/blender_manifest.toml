@@ -1,0 +1,23 @@
+schema_version = "1.0.0"
+
+id = "stub_switch"
+version = "0.7.0"
+name = "Stub Switch Generator"
+tagline = "3D-printable model railroad stub switch tie strips, rail and frog"
+maintainer = "John <john@singerlinks.com>"
+type = "add-on"
+
+blender_version_min = "4.5.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+tags = ["Add Mesh", "Import-Export"]
+
+[permissions]
+files = "Export stub switches as STL files and save presets"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  "*.pyc",
+  "tests/",
+]

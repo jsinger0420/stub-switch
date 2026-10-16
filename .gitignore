@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Release zips (dist/stub_switch-*.zip) are committed so the installable add-on is in the repo
+
+# Test / export output
+*.stl
+*.obj
+*.blend1
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

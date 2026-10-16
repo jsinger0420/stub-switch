@@ -1,0 +1,64 @@
+# Stub Switch Generator
+
+A Blender 4.5+ add-on that builds 3D-printable model railroad **stub switches** (stub turnouts), the way Tie Strip Generator builds plain track: weathered ties of every length the turnout needs, joined by low connectors, with optional tie plates (slide plates under the movable rails), spike holes or printed spikes, and optionally the rails and the frog laid on top. The tie strip exports as an STL in millimetres.
+
+![HO #6 stub switch, left hand](samples/ho6_left_top.png)
+
+## Requirements
+
+All four add-ons are installed and enabled:
+
+- **Weathered Board** 0.1.5 or later. It makes every tie, from your template tie.
+- **Switch Frog Generator** 1.0 or later. The frog preset sets the turnout's angle (frog number), the flangeway and the rail; with Include Frog it also builds the frog.
+- **Model Rail Generator** 1.0 or later. It supplies the frog preset's rail profile and sweeps the rails for Include Rail.
+
+## Install
+
+In Blender, open Edit > Preferences > Get Extensions, choose "Install from Disk" in the menu at the top right, and pick `dist/stub_switch-0.7.0.zip`. The panel is in the 3D Viewport sidebar (N), **Stub Switch** tab.
+
+## Use
+
+1. **Make the template tie.** In the Weathered Board panel, set a standard tie's prototype size (for example 8' 6" x 9" x 7" for HO mainline) and its look, and click Add Board. (Or save it as a Weathered Board preset.)
+2. **Frog and Track.** Pick a **frog preset** from Switch Frog Generator. It sets the frog number (the angle of the turnout), the flangeway, the frog's length and the rail profile, and the scale follows it. Choose **Left Hand** or **Right Hand**, the **Movable Rail Length** (15 to 24 ft on the prototype; longer rails make a gentler, longer turnout) and the **Throw** (Auto puts the straight and diverging rail ends side by side at the headblock). **Guard Rails** are on by default: they are a little shorter than the frog (the frog reaches **Frog Past Guard Rail**, 12 in, beyond each end; or choose Custom and enter a length), and each end bends in toward the middle of the track (**Bend Length** and **Bend Angle**).
+3. **Ties.** Choose **Board Object** and pick your template tie (or click the eyedropper with the board selected), or choose **Board Preset**. Its look, width and thickness are used for every tie and its length is the standard tie length. Set the spacing, how many **Approach Ties** come before the heel of the movable rails and how many **Ties Past Frog**, the **Length Step** that long ties are rounded up to (6 in on the prototype), and the **Headblock Ties**, lengthened on the switch stand side. The two headblock ties are one tie width apart by default; untick **Gap = Tie Width** to enter your own gap.
+4. **Strip:** **Two Pieces** (on by default) prints the tie strip as two pieces, the movable rail section and the fixed rail section, meeting in the gap just before the headblock tie (or before both headblock ties). In that gap each connector becomes a **tab** on the movable piece that fits a **socket** in the fixed piece's headblock tie, open at the bottom, so the pieces line up square and can be glued. Set the **Tab Depth** (1 mm) and the **Joint Clearance** (0.1 mm, more for FDM). The two ties at the joint get no random offset or angle, so the tabs always fit.
+5. **Spikes:** Spike Holes, Printed Spikes, or None. **Tie Plates** as needed (the same era presets as Tie Strip).
+   **Headblock** (separate from the tie plates, so it works with or without them): **Headblock Plates** put a plate on the headblock tie under each pair of rail ends (straight and diverging, side by side), with L-shaped clips along the inside and outside of the pair, on the fixed half of the tie, whose lips reach over the rail feet and hold the rail ends in line. The clips use the printed spike sizes in the Spikes panel. The movable rail tips slide on the other half of the plate. With tie plates on, the headblock plate is as thick as the tie plates; with them off, the headblock tie is made thinner by the plate's thickness so all the rails lie level. **Throw Stops** put a block on each side of each movable rail on the tie before the headblock tie, just clear of the rail foot at both ends of its travel, so the rails can't be pushed past either route. With **Bolts** on (the default), hex bolt heads fasten the hardware to the ties: two at each end of each headblock plate, past the clips, and two on a thin base plate under each throw stop. Set the **Bolt Head Size** (across the flats, 1-1/2 in) and **Bolt Head Height** (3/4 in).
+6. **Rail and Frog:** tick **Include Rail** to lay all the rails (set for the straight or diverging route) and **Include Frog** to lay the frog, both parented to the tie strip, to check the fit and for renders. With **Frog Heel Rails** on (the default), each route leaving the frog's heel starts with a short rail as long as the guard rails, so the frog and its heel rails can be laid as one piece; the rest of the rail carries on from there.
+7. **Generate Stub Switch** and check the Summary. **Include Frog** also adds the guard rails, even with Include Rail off.
+8. **Export STL.** The export choices are in the file browser's side panel: **Ties Only** (for printing), **Ties, Frog and Guard Rails** (so you can lay your own rail), **Entire Turnout**, or **Rail and Frog**. Every rail, guard rail and the frog is written to its own file, named after the file name chosen plus the part (for example `..._Frog.stl`, `..._Guard_L.stl`). For a two-piece tie strip, **Each Tie Piece to Its Own File** writes the fixed and movable pieces to files ending `_fixed` and `_movable`.
+
+Each Generate adds a new turnout at the 3D cursor with a new random seed, as in Tie Strip; Lock Seed repeats one and rebuilds faster. The first build takes a while because every tie is its own weathered board (about 5 s per HO tie); for big turnouts, Build Options can share boards between ties of the same length. Whole setups can be saved as switch presets from the menu at the top of the panel.
+
+## How the turnout is laid out
+
+![The frog end](samples/ho6_left_frog.png)
+
+- **Movable rails.** A stub switch has no points. From the **heel** (where they are last spiked) to the **headblock** the two approach rails are free; they bend sideways like a cantilever to line up with either the straight rails or the diverging rails, which both end square at the headblock, one **throw** apart. The bend gives the **switch angle**, atan(1.5 x throw / movable rail length). These rails sit on slide plates and get no spikes.
+- **Lead curve.** The diverging rails start at the headblock at the switch angle and curve (a circular arc) until they reach the frog angle at the frog's toe; the frog is straight, as on the prototype. The Summary shows the distance from the headblock to the frog point and the lead curve's radius.
+- **Frog.** Its theoretical point sits where the inner diverging rail's gauge line crosses the straight route's rail. Ties, plates and spikes allow for its rails; a frog with a fill or base plate gets no spikes underneath.
+- **Guard rails** sit one flangeway inside the running rails opposite the frog. By default the frog reaches a little past each end of them, and their ends bend in toward the track centre to lead wheel flanges into the flangeway.
+- **Ties** are square to the straight route, lined up on the straight side, and each reaches as far past the outermost rail as a standard tie does past its rail, rounded up to the length step. **Tie plates** merge where rails are close (headblock, frog, guard rails), and **shoulders** follow the angled rails. **Spikes** are turned with their rail and left out where they would land on another rail.
+
+## Files
+
+| File | What it does |
+| --- | --- |
+| `geom2d.py` | Plan-view polylines: arcs, offsets, clipping. Plain Python |
+| `turnout.py` | The stub switch's rails: movable rails, lead curve, frog place, guard rails. Plain Python |
+| `layout.py` | Ties, connectors, tie plates, shoulders, spike holes and printed spikes. Plain Python |
+| `meshgen.py` | Boxes, prisms, hole cutters, printed spikes and tie placement as numpy arrays. Plain Python |
+| `plates.py`, `scales.py` | Tie plate presets and scales. Plain Python |
+| `wb_bridge.py` | The template tie; builds, simplifies and caches boards with Weathered Board |
+| `frog_bridge.py` | Reads frog presets and the rail profile; builds the frog with Switch Frog Generator |
+| `build.py` | Builds the objects (Manifold booleans), the rails and the frog, and exports the STL |
+| `properties.py`, `operators.py`, `ui.py`, `prefs.py` | Settings, buttons, the sidebar panel and the preferences |
+| `preset_store.py` | Saved plate and switch presets (JSON) |
+
+Run the tests without Blender from this folder (the frog preset test uses the sibling `RAIL` and `SWITCH FROG` folders):
+
+```
+python -m unittest discover -s tests -t .
+```
+
+Make the install zip with `python build.py`.
