@@ -346,10 +346,12 @@ def generate(context, progress=None) -> BuildResult:
 
     # ---- meshes, built left-handed, one set per printed piece ----
     split = lay.split_x
-    if split is not None:  # the two ties at the joint stay square so the tabs fit
-        for i, tie in enumerate(lay.ties):
-            if abs(tie.x - split) < lay.summary["spacing"]:
-                offsets[i] = yaws[i] = 0.0
+    for i, tie in enumerate(lay.ties):
+        # The two ties at the joint stay square so the tabs fit, and so does the
+        # double tie, which the headblock plates span.
+        if lay.in_unit(tie.x) or (split is not None
+                                  and abs(tie.x - split) < lay.summary["spacing"]):
+            offsets[i] = yaws[i] = 0.0
 
     def side(x):
         """0 for the fixed piece, 1 for the movable piece."""

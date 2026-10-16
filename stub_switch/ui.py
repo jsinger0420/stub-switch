@@ -316,6 +316,7 @@ class STUBSWITCH_PT_ties(_Panel, bpy.types.Panel):
         col.prop(s, "approach_ties")
         col.prop(s, "tail_ties")
         col.prop(s, "length_step", text=f"Length Step ({u})")
+        col.prop(s, "double_tie_gap", text=f"Double Tie Gap ({u})")
         col.prop(s, "headblock_ties")
         sub = col.column()
         sub.enabled = s.headblock_ties > 0
@@ -457,7 +458,8 @@ class STUBSWITCH_PT_headblock(_Panel, bpy.types.Panel):
         sub.prop(s, "headblock_plate_thickness", text=f"Plate Thickness ({u})")
         if s.headblock_plate:
             _hint(col, "Clips use the printed spike sizes", "(Spikes panel). Without tie plates the",
-                  "headblock tie is made thinner by the", "plate thickness.")
+                  "double tie is made thinner by the", "plate thickness. The throw stops",
+                  "stand on the plate.")
         col.separator()
         col.prop(s, "throw_stops")
         sub = col.column()

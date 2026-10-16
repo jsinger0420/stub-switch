@@ -187,19 +187,31 @@ class TestLayout(unittest.TestCase):
         self.assertTrue(self.lay.ok, self.lay.errors)
 
     def test_tie_positions(self):
-        """A tie on the headblock, the set spacing, approach ties before the heel, tail past the frog."""
+        """A double tie on the headblock, the set spacing, approach ties, tail past the frog."""
         lay, t = self.lay, self.t
         xs = lay.tie_x
         p = 20 * IN / N
-        self.assertIn(0.0, [round(x, 9) for x in xs])
         wt = 9 * IN / N
-        i = xs.index(min(xs, key=abs))
+        dg = 0.5 * IN / N
+        # The double tie: centred on the headblock, half an inch apart; the long one first.
+        xl, xn = lay.unit_x
+        self.assertAlmostEqual(xl, -(wt + dg) / 2)
+        self.assertAlmostEqual(xn, (wt + dg) / 2)
+        i = xs.index(xl)
+        self.assertEqual(xs[i + 1], xn)
+        self.assertTrue(lay.ties[i].headblock)
+        self.assertFalse(lay.ties[i + 1].headblock)
+        # A standard tie: not lengthened for the switch stand, like the tie after it.
+        self.assertAlmostEqual(lay.ties[i + 1].length, lay.ties[i + 2].length)
+        self.assertLess(lay.ties[i + 1].length, lay.ties[i].length)
         self.assertAlmostEqual(xs[i] - xs[i - 1], 2 * wt)  # headblock pair: one tie width apart
         d = np.diff(xs)
-        self.assertTrue(np.allclose(np.delete(d, i - 1), p))
-        gap = layout.compute(self.t, ho_ties(headblock_tie_gap=4 * IN)).tie_x
-        j = gap.index(min(gap, key=abs))
-        self.assertAlmostEqual(gap[j] - gap[j - 1], wt + 4 * IN / N)
+        self.assertTrue(np.allclose(np.delete(d, [i - 1, i]), p))
+        gap = layout.compute(self.t, ho_ties(headblock_tie_gap=4 * IN))
+        j = gap.tie_x.index(gap.unit_x[0])
+        self.assertAlmostEqual(gap.tie_x[j] - gap.tie_x[j - 1], wt + 4 * IN / N)
+        wide = layout.compute(self.t, ho_ties(double_tie_gap=2 * IN)).unit_x
+        self.assertAlmostEqual(wide[1] - wide[0], wt + 2 * IN / N)
         heel_ties = [x for x in xs if x <= -t.movable_length + 1e-9]
         self.assertEqual(len(heel_ties), self.s.approach_ties + 1)
         self.assertEqual(len([x for x in xs if x > t.frog_heel_x]), self.s.tail_ties)
@@ -279,12 +291,12 @@ class TestLayout(unittest.TestCase):
             self.assertGreaterEqual(len(here), 2)
 
     def test_two_piece_joint(self):
-        """Split before the headblock tie: two tabs reach into sockets in the headblock tie."""
+        """Split before the double tie: two tabs reach into sockets in its long tie."""
         lay = self.lay
         wt = lay.tie_width
-        hb = next(t for t in lay.ties if abs(t.x) < 1e-9)
-        before = max(t.x for t in lay.ties if t.x < 0)
-        self.assertAlmostEqual(lay.split_x, before / 2)
+        hb = next(t for t in lay.ties if abs(t.x - lay.unit_x[0]) < 1e-9)
+        before = max(t.x for t in lay.ties if t.x < hb.x)
+        self.assertAlmostEqual(lay.split_x, (before + hb.x) / 2)
         self.assertEqual(len(lay.tabs), 2)
         self.assertEqual(len(lay.sockets), 2)
         for tab, sock in zip(lay.tabs, lay.sockets):
@@ -316,34 +328,48 @@ class TestLayout(unittest.TestCase):
     def test_inner_rail_spiked_where_fixed_rails_meet(self):
         """Just past the headblock, both rails of each side-by-side pair get spike holes."""
         lay = layout.compute(self.t, ho_ties(headblock_plate=False, stagger=2 * IN))
-        on_hb = sorted(h.y for h in lay.holes if abs(h.x) < lay.tie_width / 2)
+        xn = lay.unit_x[1]  # the double tie's standard tie, under the fixed rails' ends
+        on_hb = sorted(h.y for h in lay.holes if abs(h.x - xn) < lay.tie_width / 2)
         self.assertEqual(len(on_hb), 4)  # outside and inside of each pair (they touch between)
         yr = self.t.rail_y
         self.assertTrue(any(yr - 1.5 < y < yr for y in on_hb))  # inner rail, gauge side
 
     def test_headblock_plate_and_stops(self):
-        """Headblock plates with four clips; stops either side of each movable rail's travel."""
+        """One headblock unit per side across the double tie: plate, four clips, stops."""
         t, lay = self.t, layout.compute(self.t, ho_ties())
         ht = 7 * IN / N
         tp = 0.75 * IN / N
-        hb = next(tie for tie in lay.ties if abs(tie.x) < 1e-9)
-        self.assertAlmostEqual(hb.lowered, tp)  # no tie plates: the tie is made thinner
+        wt = lay.tie_width
+        long_tie, std_tie = lay.unit_ties()
+        for tie in (long_tie, std_tie):
+            self.assertAlmostEqual(tie.lowered, tp)  # no tie plates: both ties made thinner
+        self.assertEqual(sum(1 for tie in lay.ties if tie.lowered), 2)
         self.assertEqual(len(lay.hb_plates), 2)
         for b in lay.hb_plates:
             self.assertAlmostEqual(b.z1, ht)  # plate top level with the other ties' tops
+            # One unit spanning the double tie, centred on the headblock.
+            self.assertAlmostEqual(b.x0, long_tie.x - wt / 2 + 0.05)
+            self.assertAlmostEqual(b.x1, std_tie.x + wt / 2 - 0.05)
+            self.assertAlmostEqual(b.x0 + b.x1, 0.0)
         self.assertEqual(len(lay.clips), 4)
-        self.assertTrue(all(c.u0 + c.cx > 0 for c in lay.clips))  # on the fixed half only
-        self.assertFalse([h for h in lay.holes if abs(h.x) < lay.tie_width / 2])
-        self.assertEqual(len(lay.stops), 8)  # four stop blocks, each on a bolted base
-        stop_tie = max(tie.x for tie in lay.ties if tie.x < 0)
-        w = layout.turnout_bend(t, stop_tie)
-        blocks = [b for b in lay.stops if b.z1 > lay.seat + 0.3]
-        left = sorted((b for b in blocks if b.y0 > 0), key=lambda b: b.y0)
+        for c in lay.clips:  # over the fixed rails' tie only
+            self.assertGreaterEqual(c.cx + c.u0, std_tie.x - wt / 2)
+            self.assertLessEqual(c.cx + c.u1, std_tie.x + wt / 2)
+        self.assertFalse([h for h in lay.holes if lay.in_unit(h.x) or
+                          any(abs(h.x - x) < wt / 2 for x in lay.unit_x)])
+        # Four stop blocks, standing on the plates over the long tie (no bases of their own).
+        self.assertEqual(len(lay.stops), 4)
+        w = layout.turnout_bend(t, long_tie.x)
+        for b in lay.stops:
+            self.assertAlmostEqual((b.x0 + b.x1) / 2, long_tie.x)
+            plate = next(p for p in lay.hb_plates if p.y0 <= b.y0 and b.y1 <= p.y1)
+            self.assertAlmostEqual(b.z0, plate.z0)
+        left = sorted((b for b in lay.stops if b.y0 > 0), key=lambda b: b.y0)
         half = 1.855 / 2
         self.assertAlmostEqual(left[0].y1, t.rail_y - half - 0.15)
         self.assertAlmostEqual(left[1].y0, t.rail_y + w + half + 0.15)
-        # Bolts: two at each end of each headblock plate, two on each stop's base.
-        self.assertEqual(len(lay.bolts), 2 * 4 + 4 * 2)
+        # Bolts: two per tie at each end of each plate, past the clips and the stops.
+        self.assertEqual(len(lay.bolts), 2 * 2 * 4)
         bs = 1.5 * IN / N
         for b in lay.bolts:
             self.assertEqual(len(b.outline), 6)
@@ -352,18 +378,27 @@ class TestLayout(unittest.TestCase):
         for plate in lay.hb_plates:
             on = [b for b in lay.bolts if plate.y0 <= sum(p[1] for p in b.outline) / 6 <= plate.y1
                   and plate.x0 <= sum(p[0] for p in b.outline) / 6 <= plate.x1]
-            self.assertEqual(len(on), 4)
+            self.assertEqual(len(on), 8)
             for b in on:
                 self.assertAlmostEqual(b.z0, plate.z1 - 0.02)
-        for c in lay.clips:  # bolts stay clear of the clips
-            for b in lay.bolts[:8]:
-                by = sum(p[1] for p in b.outline) / 6
+        for b in lay.bolts:  # bolts stay clear of the clips and the stops
+            bx = sum(p[0] for p in b.outline) / 6
+            by = sum(p[1] for p in b.outline) / 6
+            for c in lay.clips:
                 self.assertGreater(abs(by - c.cy), abs(c.v_shank_out))
+            for st in lay.stops:
+                if st.x0 <= bx <= st.x1:
+                    self.assertFalse(st.y0 - bs / 2 < by < st.y1 + bs / 2)
         nobolts = layout.compute(self.t, ho_ties(bolts=False))
         self.assertEqual((nobolts.bolts, len(nobolts.stops)), ([], 4))
         plated = layout.compute(self.t, ho_ties(plates=True))
-        self.assertEqual(next(tie for tie in plated.ties if abs(tie.x) < 1e-9).lowered, 0.0)
+        self.assertFalse(any(tie.lowered for tie in plated.ties))
         self.assertAlmostEqual(plated.hb_plates[0].z1, plated.seat)
+        # Without the plate the stops stand on the long tie, each on a bolted base.
+        loose = layout.compute(self.t, ho_ties(headblock_plate=False))
+        self.assertEqual((len(loose.stops), len(loose.bolts)), (8, 8))
+        self.assertTrue(all(abs((b.x0 + b.x1) / 2 - loose.unit_x[0]) < 1e-9 for b in loose.stops))
+        self.assertFalse(any(tie.lowered for tie in loose.ties))
         none = layout.compute(self.t, ho_ties(headblock_plate=False, throw_stops=False))
         self.assertEqual((none.hb_plates, none.clips, none.stops), ([], [], []))
 
@@ -372,8 +407,8 @@ class TestLayout(unittest.TestCase):
         t = self.t
         base = layout.compute(t, ho_ties())
         every = layout.compute(t, ho_ties(stops_every_tie=True))
-        near = max(tie.x for tie in every.ties if tie.x < 0)
-        movable = [tie for tie in every.ties if -t.movable_length < tie.x < near]
+        near = every.unit_x[0]
+        movable = [tie for tie in every.ties if -t.movable_length < tie.x < near - 1e-9]
         self.assertGreater(len(movable), 5)
         wt = every.tie_width
 
@@ -394,13 +429,13 @@ class TestLayout(unittest.TestCase):
             self.assertEqual((len(left), len(right)), (1, 1))
             self.assertAlmostEqual(left[0].y0, t.rail_y + w + 1.855 / 2 + 0.15)
             self.assertAlmostEqual(right[0].y1, -t.rail_y - 1.855 / 2 - 0.15)
-        # The stop tie next to the headblock is unchanged: bolted both sides.
-        self.assertEqual(len(on(every.bolts, next(x for x in every.ties if x.x == near),
-                                lambda b: sum(p[0] for p in b.outline) / 6)), 8)
+        # The headblock unit is unchanged: stops both sides of each rail, on the plate.
+        long_tie = every.unit_ties()[0]
+        self.assertEqual(len(on(every.stops, long_tie, lambda b: (b.x0 + b.x1) / 2)), 4)
         heel = [tie for tie in every.ties if tie.x <= -t.movable_length]
         for tie in heel:  # no stops where the rails are spiked
             self.assertEqual(on(every.stops, tie, lambda b: (b.x0 + b.x1) / 2), [])
-        self.assertEqual(len(base.stops), 8)
+        self.assertEqual(len(base.stops), 4)
 
     def test_overlapping_ties(self):
         """Spacing no more than the tie width is an error."""

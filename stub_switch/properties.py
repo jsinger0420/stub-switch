@@ -18,7 +18,7 @@ from .turnout import TurnoutSpec
 
 PROTO_LENGTH_KEYS = (
     "movable_length", "guard_length", "guard_frog_margin", "guard_flare_length",
-    "tie_spacing", "length_step", "headblock_extra", "headblock_tie_gap",
+    "tie_spacing", "length_step", "headblock_extra", "headblock_tie_gap", "double_tie_gap",
     "length_jitter", "end_jitter", "stagger",
     "plate_length", "plate_width", "plate_thickness", "plate_bias",
     "shoulder_height", "shoulder_width", "headblock_plate_thickness",
@@ -147,8 +147,9 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
     split_at: EnumProperty(
         name="Split", default="HEADBLOCK", update=_changed,
         description="Where the two pieces meet",
-        items=[("HEADBLOCK", "Before Headblock Tie", "The headblock tie goes with the fixed "
-                                                      "piece, the tie before it with the movable"),
+        items=[("HEADBLOCK", "Before Double Tie", "The double tie at the headblock goes with "
+                                                    "the fixed piece, the tie before it with the "
+                                                    "movable"),
                ("PAIR", "Before Headblock Pair", "Both headblock ties go with the fixed piece")])
     tab_depth: _model("Tab Depth", 1.0, "How far each joint tab reaches into the fixed piece's tie")
     joint_clearance: _model("Joint Clearance", 0.1,
@@ -203,12 +204,16 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
                         "whole number of these steps (6 in on the prototype); 0 = exact lengths")
     headblock_ties: IntProperty(name="Headblock Ties", default=2, min=0, max=2, update=_changed,
                                 description="Ties at the headblock lengthened to carry the "
-                                            "switch stand: the headblock tie, and the one before it")
+                                            "switch stand: the long tie of the double tie at "
+                                            "the headblock, and the one before it")
     headblock_tie_gap_auto: BoolProperty(
         name="Gap = Tie Width", default=True, update=_changed,
-        description="Leave one tie width between the two headblock ties")
+        description="Leave one tie width between the two long headblock ties")
     headblock_tie_gap: _proto("Headblock Tie Gap", 9.0,
-                              "Gap between the two headblock ties, face to face")
+                              "Gap between the two long headblock ties, face to face")
+    double_tie_gap: _proto("Double Tie Gap", 0.5,
+                           "Gap between the two ties of the double tie at the headblock (the long "
+                           "headblock tie and the standard tie next to it), face to face")
     headblock_extra: _proto("Headblock Extension", 36.0,
                             "How much longer the headblock ties are, on the switch stand side")
     stand_side: EnumProperty(
@@ -313,18 +318,20 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
     # ---- headblock hardware (separate from the tie plates) ----
     headblock_plate: BoolProperty(
         name="Headblock Plates", default=True, update=_changed,
-        description="A plate on the headblock tie under each pair of rail ends (straight and "
-                    "diverging), with clips along both sides of the pair that hold the rail "
-                    "ends in line. Works with or without tie plates: without them, the headblock "
-                    "tie is made thinner so the rails stay level")
+        description="One plate each side of the track, across the double tie at the headblock, "
+                    "under each pair of rail ends (straight and diverging), with clips along "
+                    "both sides of the pair that hold the rail ends in line and the throw stops "
+                    "on it: the headblock as one unit. Works with or without tie plates: "
+                    "without them, the double tie is made thinner so the rails stay level")
     headblock_plate_thickness: _proto(
         "Headblock Plate Thickness", 0.75,
-        "Thickness of the headblock plates when tie plates are off (the headblock tie is "
+        "Thickness of the headblock plates when tie plates are off (the double tie is "
         "lowered by this much); with tie plates on they match the tie plates")
     throw_stops: BoolProperty(
         name="Throw Stops", default=True, update=_changed,
-        description="Blocks on the tie before the headblock tie, either side of each movable "
-                    "rail, that stop it at the straight and at the diverging route")
+        description="Blocks on the double tie's long tie (on the headblock plate when it's on), "
+                    "either side of each movable rail, that stop it at the straight and at the "
+                    "diverging route")
     stops_every_tie: BoolProperty(
         name="On Every Movable Tie", default=False, update=_changed,
         description="Also put a throw stop on the outside of each movable rail on every tie "
@@ -441,6 +448,7 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
             length_step=f("length_step"), headblock_ties=self.headblock_ties,
             headblock_extra=f("headblock_extra"), stand_side=self.stand_side,
             headblock_tie_gap=-1.0 if self.headblock_tie_gap_auto else f("headblock_tie_gap"),
+            double_tie_gap=f("double_tie_gap"),
             connector_width=self.connector_width, connector_height_frac=self.connector_height,
             fastening=self.fastening, hole_diameter=self.hole_diameter,
             hole_clearance=self.hole_clearance,

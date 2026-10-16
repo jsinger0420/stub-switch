@@ -5,10 +5,14 @@ Works on a ``turnout.Turnout`` (the rail lines in plan view) and a ``Spec``
 straight route, Y across it, Z up, model millimetres, left-handed; tie
 bottoms sit on Z = 0, the print bed.
 
-**Ties.** Ties are square to the straight route, one spacing apart, with a
-tie centred on the headblock (X = 0); the second headblock tie is
-``headblock_tie_gap`` before it (a tie width by default), and the ties
-before that are one spacing apart again. The strip starts ``approach_ties``
+**Ties.** Ties are square to the straight route, one spacing apart. The
+headblock (X = 0, where the movable rails meet the fixed rails) sits on a
+**double tie**: the long headblock tie under the movable rails' ends and a
+standard tie right next to it under the fixed rails' ends,
+``double_tie_gap`` apart and centred on the headblock. The second
+headblock tie is ``headblock_tie_gap`` before the double tie (a tie width
+by default), and the ties before that are one spacing apart again; the
+ties past the double tie are one spacing apart. The strip starts ``approach_ties``
 ties before the heel of the movable rails and ends ``tail_ties`` ties past
 the frog's heel. Every tie has the template tie's width and thickness. Its
 length is the template's (the standard tie) under plain track; where the
@@ -35,7 +39,7 @@ The movable rails are not spiked between the heel and the headblock.
 diverging route's rails, following each rail's line.
 
 **Two pieces.** With ``split`` on, the strip prints as two pieces that meet
-in the gap just before the headblock tie (or before both headblock ties):
+in the gap just before the double tie (or before both headblock ties):
 the movable rail section and the fixed rail section. In the gap where they
 meet, each connector becomes a tab on the movable piece that reaches
 ``tab_depth`` into a matching socket in the fixed piece's tie, open at the
@@ -171,6 +175,7 @@ class Spec:
     headblock_ties: int = 2
     headblock_extra: float = 914.4  # full-size mm added on the switch stand side
     headblock_tie_gap: float = -1.0  # full-size mm between the two headblock ties; < 0 = a tie width
+    double_tie_gap: float = 12.7  # full-size mm between the two ties of the double tie
     stand_side: str = STRAIGHT_SIDE
 
     connector_width: float = 0.0  # model mm; 0 = the rail foot width
@@ -212,10 +217,10 @@ class Spec:
     seat_inset: float = 0.0
     seat_margin: float = 0.2
 
-    headblock_plate: bool = True  # a plate on the headblock tie with clips holding the rail ends
+    headblock_plate: bool = True  # a plate across the double tie: clips and the throw stops
     headblock_plate_thickness: float = 19.05  # full-size mm, used when tie plates are off
     plate_margin: float = 0.2  # model mm the headblock plate reaches past its clips
-    throw_stops: bool = True  # stops on the tie before the headblock limiting the movable rails
+    throw_stops: bool = True  # stops on the double tie's long tie limiting the movable rails
     stops_every_tie: bool = False  # also on every tie under the movable rails, past the heel
     stop_width: float = 0.5  # model mm across the track
     stop_clearance: float = 0.15  # model mm between a stop and the rail foot at the end of travel
@@ -226,7 +231,7 @@ class Spec:
     stop_plate_thickness: float = 12.7  # full-size mm, the throw stop's bolted base (1/2 in)
 
     split: bool = True  # print as two pieces: movable rail section and fixed rail section
-    split_at: str = "HEADBLOCK"  # "HEADBLOCK": just before the headblock tie; "PAIR": before both
+    split_at: str = "HEADBLOCK"  # "HEADBLOCK": just before the double tie; "PAIR": before both
     tab_depth: float = 1.0  # model mm a joint tab reaches into the fixed piece's tie
     joint_clearance: float = 0.1  # model mm of play around each tab in its socket
 
@@ -250,6 +255,7 @@ class Layout:
     x_rail1: float = 0.0
     connectors: list[Prism] = field(default_factory=list)
     split_x: float | None = None  # pieces meet here: X below is the movable piece
+    unit_x: tuple[float, ...] = ()  # the double tie at the headblock: long tie, then standard
     tabs: list[Prism] = field(default_factory=list)  # joint tabs, part of the movable piece
     hb_plates: list[Box] = field(default_factory=list)  # headblock plates
     clips: list[Spike] = field(default_factory=list)  # rail clips on the headblock plates
@@ -274,6 +280,14 @@ class Layout:
     def tie_x(self) -> list[float]:
         """Every tie's centre X."""
         return [t.x for t in self.ties]
+
+    def in_unit(self, x: float) -> bool:
+        """True for the two ties of the double tie at the headblock."""
+        return any(abs(x - u) < 1e-9 for u in self.unit_x)
+
+    def unit_ties(self) -> list[Tie]:
+        """The double tie: the long headblock tie, then the standard tie past it."""
+        return [tie for tie in self.ties if self.in_unit(tie.x)]
 
 
 def _check(s: Spec) -> list[str]:
@@ -336,25 +350,30 @@ def compute(t: Turnout, s: Spec) -> Layout:
                             "end of a tie; reduce them.")
 
     # ---- tie positions ----
+    # The double tie, centred on the headblock: the long tie under the movable
+    # rails' ends, the standard tie under the fixed rails' ends.
+    half = (wt + max(s.model(s.double_tie_gap), 0.02)) / 2
+    xl, xn = -half, half
+    lay.unit_x = (xl, xn)
     na = int(math.floor(t.frog_heel_x / p + 1e-9)) + s.tail_ties  # tail ties past the heel
-    after = [i * p for i in range(0, na + 1)]
-    before = []  # ties before the headblock tie, nearest first
-    x = 0.0
+    after = [xn + i * p for i in range(0, na + 1)]
+    before = [xl]  # ties before the headblock, nearest first
+    x = xl
     if s.headblock_ties >= 2:
         hgap = s.model(s.headblock_tie_gap) if s.headblock_tie_gap >= 0 else wt
         if hgap < 0.1:
             lay.errors.append("The gap between the headblock ties must be at least 0.1 mm.")
             return lay
-        x = -(wt + hgap)
+        x -= wt + hgap
         before.append(x)
     heel = -t.movable_length + 1e-9
     while sum(1 for b in before if b <= heel) < s.approach_ties + 1:
         x -= p
         before.append(x)
     xs = before[::-1] + after
-    hb_x = {0.0} if s.headblock_ties >= 1 else set()
+    hb_x = {xl} if s.headblock_ties >= 1 else set()
     if s.headblock_ties >= 2:
-        hb_x.add(before[0])
+        hb_x.add(before[1])
     lay.x_rail0, lay.x_rail1 = xs[0] - p / 2, xs[-1] + p / 2
     lines = []
     for ln in t.lines:
@@ -386,7 +405,7 @@ def compute(t: Turnout, s: Spec) -> Layout:
                               "it thinner (Headblock panel).")
             return lay
         lay.ties = [Tie(tie.x, tie.y0, tie.y1, tie.headblock,
-                        s.model(s.headblock_plate_thickness) if abs(tie.x) < 1e-9 else 0.0)
+                        s.model(s.headblock_plate_thickness) if lay.in_unit(tie.x) else 0.0)
                     for tie in lay.ties]
 
     # ---- plates, shoulders and rail seats ----
@@ -410,7 +429,7 @@ def compute(t: Turnout, s: Spec) -> Layout:
 
     # ---- split into two pieces, then connectors (and joint tabs) ----
     if s.split:
-        h = next(i for i, tie in enumerate(lay.ties) if abs(tie.x) < 1e-9)
+        h = next(i for i, tie in enumerate(lay.ties) if abs(tie.x - xl) < 1e-9)
         k = h - 1 if s.split_at == "PAIR" and s.headblock_ties >= 2 and h >= 2 else h
         if k >= 1:
             lay.split_x = (lay.ties[k - 1].x + lay.ties[k].x) / 2
@@ -467,8 +486,8 @@ def _plates(t: Turnout, s: Spec, lay: Layout, lines, tp: float, embed: float) ->
     top = ht + tp
     for tie in lay.ties:
         x = tie.x
-        if s.headblock_plate and abs(x) < 1e-9:
-            continue  # the headblock plate takes this tie's plates
+        if s.headblock_plate and lay.in_unit(x):
+            continue  # the headblock plate takes the double tie's plates
         xa, xb = x - wp / 2, x + wp / 2
         spans = []
         for ln, pts in lines:
@@ -541,7 +560,7 @@ def _seat_pads(s: Spec, lay: Layout, lines) -> None:
         return
     m = s.foot_width / 2 + s.seat_margin
     for tie in lay.ties:
-        if s.headblock_plate and abs(tie.x) < 1e-9:
+        if s.headblock_plate and lay.in_unit(tie.x):
             continue  # lowered under the headblock plate
         spans = []
         for _ln, pts in lines:
@@ -624,7 +643,7 @@ def _holes(t: Turnout, s: Spec, lay: Layout, lines, top: float) -> None:
     off_tie = 0
     for tie in lay.ties:
         x = tie.x
-        if s.headblock_plate and abs(x) < 1e-9:
+        if s.headblock_plate and lay.in_unit(x):
             continue  # the headblock plate's clips hold the rails here
         for ln, pts in lines:
             cross = _crossing(pts, x, wt / 2)
@@ -714,7 +733,7 @@ def _printed_spikes(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -> fl
     z_head, z_top = seat + z_under, seat + foot_under_head(s) + cv + th
     placed: list[tuple[float, float]] = []
     for index, tie in enumerate(lay.ties):
-        if _bare(s, lay, index) or (s.headblock_plate and abs(tie.x) < 1e-9):
+        if _bare(s, lay, index) or (s.headblock_plate and lay.in_unit(tie.x)):
             continue
         x = tie.x
         for ln, pts in lines:
@@ -749,44 +768,54 @@ def _printed_spikes(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -> fl
 
 
 def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -> float:
-    """The headblock plates with their rail clips, and the throw stops. Returns the highest top.
+    """The headblock plates with their rail clips and throw stops. Returns the highest top.
 
-    **Headblock plate.** On the headblock tie the straight and diverging
-    rails start side by side, one throw apart, on each side of the track.
-    One plate per side runs the width of the tie under both rail ends (and
-    under the tips of the movable rails, which slide on it). On its fixed
-    half, past the headblock gap, an L-shaped clip runs along the outside of
-    the pair and another along the inside, each with a lip over the rail
+    The headblock sits on the double tie: the long headblock tie under the
+    movable rails' ends, and a standard tie right next to it under the fixed
+    rails' ends.
+
+    **Headblock plate.** On each side of the track one plate spans both ties
+    of the double tie, centred on the headblock, under the straight and
+    diverging rail ends (side by side, one throw apart) and the tips of the
+    movable rail, which slide on it. It carries the whole headblock as one
+    unit: over the fixed rails' tie an L-shaped clip runs along the outside
+    of the pair and another along the inside, each with a lip over the rail
     foot like a printed spike head (same sizes and clearances), holding the
-    rail ends in line. With tie plates on, the plate is as thick as the tie
-    plates; with them off, the tie is lowered by the plate's thickness so
-    the rails sit level with the bare ties.
+    rail ends in line; over the long tie the throw stops stand on it. With
+    tie plates on, the plate is as thick as the tie plates; with them off,
+    both ties are lowered by the plate's thickness so the rails sit level
+    with the bare ties.
 
-    **Throw stops.** On the tie before the headblock tie, each movable rail
-    gets a block on each side, just clear of its foot at the two ends of its
-    travel (lined up with the straight route, and thrown), so it can't be
-    pushed past either route. With ``stops_every_tie`` every other tie under
-    the movable rails, from the heel on, gets a bolted stop on each rail's
-    outside, set to the rail's travel at that tie.
+    **Throw stops.** Over the long tie each movable rail gets a block on each
+    side, just clear of its foot at the two ends of its travel (lined up
+    with the straight route, and thrown), so it can't be pushed past either
+    route. Without the headblock plate they stand on the tie, each on its own
+    bolted base. With ``stops_every_tie`` every other tie under the movable
+    rails, from the heel on, gets a bolted stop on each rail's outside, set
+    to the rail's travel at that tie.
 
     **Bolts.** With ``bolts`` on, hex bolt heads fasten the hardware to the
-    ties: two at each end of each headblock plate, past the clips; and each
-    throw stop stands on a thin base plate reaching away from the rail,
-    held by two bolts.
+    ties: two per tie at each end of each headblock plate, past the clips
+    and stops; and a stop on its own stands on a thin base plate reaching
+    away from the rail, held by two bolts.
     """
     half_foot, wt, ht = s.foot_width / 2, lay.tie_width, lay.tie_height
     top = lay.seat
-    hb = next((tie for tie in lay.ties if abs(tie.x) < 1e-9), None)
-    if s.headblock_plate and hb is not None:
+    unit = lay.unit_ties()
+    if len(unit) != 2:
+        return top
+    long_tie, std_tie = unit
+    if s.headblock_plate:
         if s.foot_edge <= 0:
             lay.errors.append("The headblock plate's clips need the rail foot thickness from "
                               "the rail profile.")
             return top
-        tp = s.model(s.plate_thickness) if s.plates else hb.lowered
-        z_plate = ht - hb.lowered  # the plate sits on the (lowered) tie
+        tp = s.model(s.plate_thickness) if s.plates else long_tie.lowered
+        z_plate = ht - long_tie.lowered  # the plate sits on the (lowered) ties
         seat = z_plate + tp
         gap = t.half_gap
-        u0, u1 = gap + 0.05, wt / 2 - 0.15  # clips stay inside the plate's ends
+        u0 = max(gap, std_tie.x - wt / 2) + 0.05  # clips over the fixed rails' tie
+        u1 = std_tie.x + wt / 2 - 0.15
         a, o = s.spike_shank, s.spike_overhang
         cp, cv, th = s.spike_side_clear, s.spike_top_clear, s.spike_head
         under, z_under, _flat = spike_underside(s, half_foot)
@@ -796,22 +825,35 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
             if ln.kind == "RUNNING" and abs(pts[0, 0] - gap) < 1e-6 and g2.covers(pts, u1):
                 y, h = _frame(pts, (u0 + u1) / 2)
                 stubs.append((y, h))
+        stop_boxes = []
+        if s.throw_stops:  # standing on the plate, over the long tie
+            n0 = len(lay.stops)
+            top = max(top, _throw_stops(t, s, lay, long_tie, embed, outside_only=False,
+                                        z0=z_plate - embed))
+            stop_boxes = lay.stops[n0:]
         bs, bh = s.model(s.bolt_size), s.model(s.bolt_height)
         bolt_zone = bs + 0.2 if s.bolts else 0.0  # room at each end of the plate for its bolts
-        reach = half_foot + cp + a + max(s.plate_margin, bolt_zone)
+        margin = max(s.plate_margin, bolt_zone)
+        px0, px1 = long_tie.x - wt / 2 + 0.05, std_tie.x + wt / 2 - 0.05
         for sign in (1, -1):
             pair = sorted((st for st in stubs if st[0] * sign > 0), key=lambda st: abs(st[0]))
             if not pair:
                 continue
             ys = [y for y, _h in pair]
             dy = max(abs(math.tan(h)) for _y, h in pair) * wt / 2
-            y0, y1 = min(ys) - reach - dy, max(ys) + reach + dy
-            y0, y1 = max(y0, hb.y0), min(y1, hb.y1)
-            lay.hb_plates.append(Box(-wt / 2 + 0.05, wt / 2 - 0.05, y0, y1, z_plate - embed, seat))
-            if s.bolts:  # two bolts at each end of the plate, past the clips
+            clip = half_foot + cp + a
+            lo, hi = min(ys) - clip - dy, max(ys) + clip + dy
+            for b in stop_boxes:
+                if (b.y0 + b.y1) / 2 * sign > 0:
+                    lo, hi = min(lo, b.y0), max(hi, b.y1)
+            y0 = max(lo - margin, long_tie.y0, std_tie.y0)
+            y1 = min(hi + margin, long_tie.y1, std_tie.y1)
+            lay.hb_plates.append(Box(px0, px1, y0, y1, z_plate - embed, seat))
+            if s.bolts:  # two bolts per tie at each end of the plate, past the clips and stops
                 for yb in (y0 + 0.1 + bs / 2, y1 - 0.1 - bs / 2):
-                    for xb in (-wt / 4, wt / 4):
-                        lay.bolts.append(hex_bolt(xb, yb, bs, seat - 0.02, seat + bh))
+                    for tie in unit:
+                        for xb in (tie.x - wt / 4, tie.x + wt / 4):
+                            lay.bolts.append(hex_bolt(xb, yb, bs, seat - 0.02, seat + bh))
             # Clips: inside the pair (toward the centre) and outside it.
             for (y, h), f in ((pair[0], -sign), (pair[-1], sign)):
                 cx = (u0 + u1) / 2
@@ -821,36 +863,38 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
                     v_shank_out=f * (half_foot + cp + a), z0=seat - 0.05, z_head=z_head,
                     z_top=z_top, under=tuple((f * u, seat + z) for u, z in under)))
         top = max(top, z_top, seat + (bh if s.bolts else 0.0))
-    if s.throw_stops:
-        before = [tie for tie in lay.ties if tie.x < -1e-9]
-        if before:
-            # The tie just before the headblock tie: stops both sides, both bolted.
-            z1 = _throw_stops(t, s, lay, before[-1], embed, outside_only=False)
-            top = max(top, z1)
-            if s.stops_every_tie:
-                # Every other tie under the movable rails, between the heel (where the
-                # rails are spiked) and that tie: one bolted stop, on the rail's outside.
-                for tie in before[:-1]:
-                    if tie.x > -t.movable_length + 1e-6:
-                        _throw_stops(t, s, lay, tie, embed, outside_only=True)
+    elif s.throw_stops:
+        # No headblock plate: stops both sides of each rail on the long tie, each bolted.
+        top = max(top, _throw_stops(t, s, lay, long_tie, embed, outside_only=False))
+    if s.throw_stops and s.stops_every_tie:
+        # Every other tie under the movable rails, between the heel (where the rails
+        # are spiked) and the double tie: one bolted stop, on the rail's outside.
+        for tie in lay.ties:
+            if -t.movable_length + 1e-6 < tie.x < long_tie.x - 1e-9:
+                _throw_stops(t, s, lay, tie, embed, outside_only=True)
     return top
 
 
 def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
-                 outside_only: bool) -> float:
+                 outside_only: bool, z0: float | None = None) -> float:
     """Throw stops on ``tie``: a block each side of each movable rail. Returns their top.
 
     Each block is just clear of the rail foot at one end of the rail's
     travel there: lined up with the straight route, or thrown (moved over
     by the bend at this tie). With ``outside_only`` only the block on the
-    rail's outside (field side) is made. With bolts on, each block stands
-    on a thin base plate reaching away from the rail, held by two bolts.
+    rail's outside (field side) is made. Given ``z0``, the blocks stand on
+    the headblock plate from there, and the plate is bolted down instead;
+    otherwise, with bolts on, each block stands on a thin base plate
+    reaching away from the rail, held by two bolts.
     """
     half_foot, wt, ht = s.foot_width / 2, lay.tie_width, lay.tie_height
     w = float(turnout_bend(t, tie.x))
     c, sw = s.stop_clearance, s.stop_width
     h_stop = s.stop_height if s.stop_height > 0 else max(s.foot_web, s.foot_edge, 0.2)
     z1 = lay.seat + h_stop
+    on_plate = z0 is not None
+    if z0 is None:
+        z0 = ht - embed
     bs, bh = s.model(s.bolt_size), s.model(s.bolt_height)
     base_t = min(s.model(s.stop_plate_thickness), h_stop / 2)
     x0, x1 = tie.x - wt / 2 + 0.1, tie.x + wt / 2 - 0.1
@@ -862,8 +906,8 @@ def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
                 continue  # the movable ties get a stop on the rail's outside only
             far = near + away * sw
             lay.stops.append(Box(x0, x1, max(min(near, far), tie.y0),
-                                 min(max(near, far), tie.y1), ht - embed, z1))
-            if not s.bolts:
+                                 min(max(near, far), tie.y1), z0, z1))
+            if on_plate or not s.bolts:
                 continue
             # A base plate reaching away from the rail, bolted to the tie. It starts
             # inside the block and stops short of the block's ends, so no faces of the
