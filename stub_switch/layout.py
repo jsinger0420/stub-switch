@@ -766,8 +766,8 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
     gets a block on each side, just clear of its foot at the two ends of its
     travel (lined up with the straight route, and thrown), so it can't be
     pushed past either route. With ``stops_every_tie`` every other tie under
-    the movable rails, from the heel on, gets them too, set to the rail's
-    travel at that tie and bolted only on the rail's outside.
+    the movable rails, from the heel on, gets a bolted stop on each rail's
+    outside, set to the rail's travel at that tie.
 
     **Bolts.** With ``bolts`` on, hex bolt heads fasten the hardware to the
     ties: two at each end of each headblock plate, past the clips; and each
@@ -829,7 +829,7 @@ def _headblock_hardware(t: Turnout, s: Spec, lay: Layout, lines, embed: float) -
             top = max(top, z1)
             if s.stops_every_tie:
                 # Every other tie under the movable rails, between the heel (where the
-                # rails are spiked) and that tie: bolted only on the rail's outside.
+                # rails are spiked) and that tie: one bolted stop, on the rail's outside.
                 for tie in before[:-1]:
                     if tie.x > -t.movable_length + 1e-6:
                         _throw_stops(t, s, lay, tie, embed, outside_only=True)
@@ -842,9 +842,9 @@ def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
 
     Each block is just clear of the rail foot at one end of the rail's
     travel there: lined up with the straight route, or thrown (moved over
-    by the bend at this tie). With bolts on, a block stands on a thin base
-    plate reaching away from the rail, held by two bolts: on both blocks,
-    or with ``outside_only`` just the one on the rail's outside (field side).
+    by the bend at this tie). With ``outside_only`` only the block on the
+    rail's outside (field side) is made. With bolts on, each block stands
+    on a thin base plate reaching away from the rail, held by two bolts.
     """
     half_foot, wt, ht = s.foot_width / 2, lay.tie_width, lay.tie_height
     w = float(turnout_bend(t, tie.x))
@@ -858,10 +858,12 @@ def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
         outside = 1 if y > 0 else -1  # the field side of this rail
         # (block's near face, away from the rail: -1 below the rail, +1 above it)
         for near, away in ((y - half_foot - c, -1), (y + w + half_foot + c, 1)):
+            if outside_only and away != outside:
+                continue  # the movable ties get a stop on the rail's outside only
             far = near + away * sw
             lay.stops.append(Box(x0, x1, max(min(near, far), tie.y0),
                                  min(max(near, far), tie.y1), ht - embed, z1))
-            if not s.bolts or (outside_only and away != outside):
+            if not s.bolts:
                 continue
             # A base plate reaching away from the rail, bolted to the tie. It starts
             # inside the block and stops short of the block's ends, so no faces of the

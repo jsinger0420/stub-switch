@@ -327,9 +327,9 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
                     "rail, that stop it at the straight and at the diverging route")
     stops_every_tie: BoolProperty(
         name="On Every Movable Tie", default=False, update=_changed,
-        description="Also put throw stops on every tie under the movable rails, from the heel "
-                    "to the headblock, each set to the rail's travel at that tie. These are "
-                    "bolted only on the outside of the rail")
+        description="Also put a throw stop on the outside of each movable rail on every tie "
+                    "under the movable rails, from the heel to the headblock, set to the rail's "
+                    "travel at that tie")
     stop_width: _model("Stop Width", 0.5, "Width of each throw stop across the track")
     stop_clearance: _model("Stop Clearance", 0.15,
                            "Play between a throw stop and the rail foot at each end of travel")
