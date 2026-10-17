@@ -334,6 +334,23 @@ class TestLayout(unittest.TestCase):
         yr = self.t.rail_y
         self.assertTrue(any(yr - 1.5 < y < yr for y in on_hb))  # inner rail, gauge side
 
+    def test_no_thin_gaps_between_connectors(self):
+        """Where the diverging rails leave the straight ones, close connectors merge into one."""
+        lay = self.lay
+        merged = 0
+        for a, b in zip(lay.ties, lay.ties[1:]):
+            here = [c for c in lay.connectors if a.x < c.outline[0][0] < b.x]
+            ends = [(min(p[1] for p in c.outline[::3]), max(p[1] for p in c.outline[::3]),
+                     min(p[1] for p in c.outline[1:3]), max(p[1] for p in c.outline[1:3]))
+                    for c in here]
+            for i, u in enumerate(ends):
+                for v in ends[i + 1:]:
+                    gap0 = max(u[0], v[0]) - min(u[1], v[1])
+                    gap1 = max(u[2], v[2]) - min(u[3], v[3])
+                    self.assertGreaterEqual(min(gap0, gap1), layout.CONNECTOR_GAP)
+            merged += any(u[1] - u[0] > 2.5 for u in ends)  # wider than one rail foot
+        self.assertGreater(merged, 0)
+
     def test_plates_sit_on_the_ties(self):
         """Tie plates sit on top, narrower than the tie; a hidden footing fills the grain."""
         inset = 0.3  # the worn sides of the weathered ties (side grain depth + 0.1)

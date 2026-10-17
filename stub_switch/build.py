@@ -309,7 +309,21 @@ def _piece(name, ties, parts, holes, coll, solver):
     old = base.data
     base.data = wb_bridge.mesh_from_arrays(name, verts, tris)
     bpy.data.meshes.remove(old)
-    return base, _clean(base.data), solver
+    edges = _clean(base.data)
+    _shade(base.data)
+    return base, edges, solver
+
+
+def _shade(mesh: bpy.types.Mesh) -> None:
+    """Smooth the weathered wood but keep flat faces flat (smooth by angle, 60 degrees).
+
+    Fully smooth shading spreads the light across the big flat faces of the
+    connectors and plates, which then show odd light and dark triangles.
+    """
+    try:
+        mesh.set_sharp_from_angle(angle=math.radians(60.0))
+    except (AttributeError, TypeError):
+        mesh.shade_flat()
 
 
 def generate(context, progress=None) -> BuildResult:

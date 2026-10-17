@@ -1007,6 +1007,9 @@ def turnout_bend(t: Turnout, x: float) -> float:
     return float(bend(t.movable_length, t.throw, np.array([x]))[0])
 
 
+CONNECTOR_GAP = 0.6  # model mm: connectors closer than this merge into one
+
+
 def _connectors(t: Turnout, s: Spec, lay: Layout) -> None:
     """Low connectors between neighbouring ties under the straight and diverging rails."""
     wc = s.connector_width if s.connector_width > 0 else s.foot_width
@@ -1025,16 +1028,36 @@ def _connectors(t: Turnout, s: Spec, lay: Layout) -> None:
         is_joint = joint and a.x < lay.split_x < b.x
         if is_joint:
             x1 = b.x - wt / 2 + s.tab_depth
-        done: list[tuple[float, float]] = []
+        # Each connector's sides across the track at both ends: [lo0, hi0, lo1, hi1].
+        spans = []
         for pts in t.connector_lines:
             if not (g2.covers(pts, x0) and g2.covers(pts, x1)):
                 continue
             (y0, h0), (y1, h1) = _frame(pts, x0), _frame(pts, x1)
-            if any(abs(y0 - p) < wc and abs(y1 - q) < wc for p, q in done):
-                continue  # too close to a connector already there
-            done.append((y0, y1))
             w0, w1 = wc / 2 / math.cos(h0), wc / 2 / math.cos(h1)
-            quad = ((x0, y0 - w0), (x1, y1 - w1), (x1, y1 + w1), (x0, y0 + w0))
+            spans.append([y0 - w0, y0 + w0, y1 - w1, y1 + w1])
+        # Connectors that overlap or come closer than CONNECTOR_GAP (where the
+        # diverging rails leave the straight ones, at the frog) become one wide
+        # connector; otherwise they'd leave thin wedge-shaped gaps.
+        merged = True
+        while merged:
+            merged = False
+            for i in range(len(spans)):
+                for j in range(i + 1, len(spans)):
+                    u, v = spans[i], spans[j]
+                    gap0 = max(u[0], v[0]) - min(u[1], v[1])
+                    gap1 = max(u[2], v[2]) - min(u[3], v[3])
+                    if min(gap0, gap1) < CONNECTOR_GAP:
+                        spans[i] = [min(u[0], v[0]), max(u[1], v[1]),
+                                    min(u[2], v[2]), max(u[3], v[3])]
+                        del spans[j]
+                        merged = True
+                        break
+                if merged:
+                    break
+        for lo0, hi0, lo1, hi1 in spans:
+            y0, y1 = (lo0 + hi0) / 2, (lo1 + hi1) / 2
+            quad = ((x0, lo0), (x1, lo1), (x1, hi1), (x0, hi0))
             if not is_joint:
                 lay.connectors.append(Prism(quad, 0.0, hc))
                 continue
@@ -1042,8 +1065,8 @@ def _connectors(t: Turnout, s: Spec, lay: Layout) -> None:
             c = s.joint_clearance
             lay.tabs.append(Prism(quad, 0.0, hc))
             sx0, sx1 = b.x - wt / 2 - 0.5, x1 + c
-            lay.sockets.append(Prism(((sx0, y0 - w0 - c), (sx1, y1 - w1 - c),
-                                      (sx1, y1 + w1 + c), (sx0, y0 + w0 + c)), -1.0, hc + c))
+            lay.sockets.append(Prism(((sx0, lo0 - c), (sx1, lo1 - c),
+                                      (sx1, hi1 + c), (sx0, hi0 + c)), -1.0, hc + c))
     if joint and len(lay.tabs) < 2:
         lay.warnings.append("The pieces are joined by fewer than two tabs, so they may not "
                             "line up well.")

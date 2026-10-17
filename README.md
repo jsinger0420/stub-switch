@@ -14,7 +14,7 @@ All four add-ons are installed and enabled:
 
 ## Install
 
-In Blender, open Edit > Preferences > Get Extensions, choose "Install from Disk" in the menu at the top right, and pick `dist/stub_switch-0.11.0.zip`. The panel is in the 3D Viewport sidebar (N), **Stub Switch** tab.
+In Blender, open Edit > Preferences > Get Extensions, choose "Install from Disk" in the menu at the top right, and pick `dist/stub_switch-0.11.1.zip`. The panel is in the 3D Viewport sidebar (N), **Stub Switch** tab.
 
 ## Use
 
@@ -41,6 +41,7 @@ Each Generate adds a new turnout at the 3D cursor with a new random seed, as in 
 - **Lead curve.** The diverging rails start at the headblock at the switch angle and curve (a circular arc) until they reach the frog angle at the frog's toe; the frog is straight, as on the prototype. The Summary shows the distance from the headblock to the frog point and the lead curve's radius.
 - **Frog.** Its theoretical point sits where the inner diverging rail's gauge line crosses the straight route's rail. Ties, plates and spikes allow for its rails; a frog with a fill or base plate gets no spikes underneath.
 - **Guard rails** sit one flangeway inside the running rails opposite the frog. By default the frog reaches a little past each end of them, and their ends bend in toward the track centre to lead wheel flanges into the flangeway.
+- **Connectors** run under the straight and diverging rails between the ties; where the diverging rails leave the straight ones, connectors that would leave a thin wedge-shaped gap between them merge into one wider connector.
 - **Ties** are square to the straight route, lined up on the straight side, with a double tie under the headblock, and each reaches as far past the outermost rail as a standard tie does past its rail, rounded up to the length step. **Tie plates** merge where rails are close (headblock, frog, guard rails), and **shoulders** follow the angled rails. **Spikes** are turned with their rail and left out where they would land on another rail.
 
 ## Files
