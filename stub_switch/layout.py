@@ -136,6 +136,20 @@ class Spike:
         return out
 
 
+@dataclass
+class GaugeBar:
+    """A gauge bar between the movable rails, printed on its own. Model mm.
+
+    Boxes to join (the bar and the hooks round each rail foot) and holes
+    to cut (the switch stand's bolt hole, on the bar with the extension).
+    """
+
+    x: float  # centre of the tie gap it sits in
+    boxes: list[Box]
+    holes: list[Hole]
+    stand: bool = False  # has the extension for the switch stand
+
+
 @dataclass(frozen=True)
 class Tie:
     """One tie: centre X, and its ends across the track (before variation). Model mm."""
@@ -235,6 +249,18 @@ class Spec:
     tab_depth: float = 1.0  # model mm a joint tab reaches into the fixed piece's tie
     joint_clearance: float = 0.1  # model mm of play around each tab in its socket
 
+    gauge_bars: bool = True  # gauge bars between the movable rails, in the tie gaps
+    gauge_bar_count: int = 4  # at most, every other gap from the headblock toward the heel
+    gauge_bar_width: float = 101.6  # full-size mm along the track (4 in)
+    gauge_bar_thickness: float = 0.6  # model mm
+    gauge_bar_post: float = 0.4  # model mm: the hooks' upright beside the rail foot
+    gauge_bar_lip: float = 0.3  # model mm: thickness of the hooks' lip over the foot
+    gauge_bar_overhang: float = 0.25  # model mm the lip reaches in over the foot
+    gauge_bar_clearance: float = 0.1  # model mm of play round the rail foot
+    gauge_bar_thrown: bool = False  # made with the movable rails set for the diverging route
+    stand_extension: float = 609.6  # full-size mm past the rail on the switch stand side (24 in)
+    stand_hole: float = 0.8  # model mm, the switch stand's bolt hole
+
     frog_solid: bool = False  # the frog has a fill or base plate: no spikes under it
     frog_base_plate: bool = False  # the frog brings its own plate: no tie plates under it
 
@@ -266,6 +292,7 @@ class Layout:
     shoulders: list[Prism] = field(default_factory=list)
     seats: list[Box] = field(default_factory=list)
     footings: list[Box] = field(default_factory=list)  # fill the grain under plates and stops
+    gauge_bars: list[GaugeBar] = field(default_factory=list)  # each printed on its own
     holes: list[Hole] = field(default_factory=list)
     spikes: list[Spike] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -435,6 +462,8 @@ def compute(t: Turnout, s: Spec) -> Layout:
         if k >= 1:
             lay.split_x = (lay.ties[k - 1].x + lay.ties[k].x) / 2
     _connectors(t, s, lay)
+    if s.gauge_bars:
+        _gauge_bars(t, s, lay)
 
     longest = max(lay.ties, key=lambda tie: tie.length)
     lay.summary = {
@@ -990,6 +1019,82 @@ def _throw_stops(t: Turnout, s: Spec, lay: Layout, tie: Tie, embed: float,
                 lay.bolts.append(hex_bolt(xb, yb, bs, lay.seat + base_t - 0.02,
                                           lay.seat + base_t + bh))
     return z1
+
+
+def _gauge_bars(t: Turnout, s: Spec, lay: Layout) -> None:
+    """Gauge bars across the movable rails, in the tie gaps under them.
+
+    Each bar lies across the track just under the movable rails' feet,
+    above the connectors, in a gap between two ties so it moves with the
+    rails when they are thrown. At each rail it has a hook either side of
+    the foot (an upright beside the foot's edge and a lip over its top),
+    with ``gauge_bar_clearance`` of play, so it holds the rails loosely in
+    gauge and slides on from the rail ends. The first bar is in the gap
+    between the two long headblock ties (or the gap nearest the
+    headblock) and reaches out past the rail on the switch stand side with
+    a bolt hole for the stand; the rest go in every other gap toward the
+    heel, up to ``gauge_bar_count`` in all.
+    """
+    half_foot, wt = s.foot_width / 2, lay.tie_width
+    c, a, lip = s.gauge_bar_clearance, s.gauge_bar_post, s.gauge_bar_lip
+    tb = s.gauge_bar_thickness
+    z1 = lay.seat - c  # the bar's top, just under the rail feet
+    z0 = z1 - tb
+    hc = s.connector_height_frac * lay.tie_height
+    if z0 < hc + 0.1:
+        lay.warnings.append("Gauge bars left out: no room for them between the connectors and "
+                            "the rail feet; make them thinner or the connectors lower.")
+        return
+    if s.foot_edge <= 0:
+        lay.warnings.append("Gauge bars left out: they need the rail foot thickness from the "
+                            "rail profile.")
+        return
+    web = s.web_width if s.web_width > 0 else s.head_width / 2
+    over = min(s.gauge_bar_overhang, (s.foot_width - web) / 2 - 0.1)
+    slope = (s.foot_web - s.foot_edge) / max((s.foot_width - web) / 2, 1e-6)
+    z_lip0 = lay.seat + s.foot_edge + max(slope, 0.0) * max(over, 0.0) + c / 2
+    z_top = z_lip0 + lip
+    heel = -t.movable_length
+    head = lay.unit_x[0] if lay.unit_x else 0.0
+    gaps = [(a_.x, b_.x) for a_, b_ in zip(lay.ties, lay.ties[1:])
+            if a_.x > heel + 1e-6 and b_.x <= head + 1e-9]
+    gaps.reverse()  # from the headblock toward the heel
+    chosen = gaps[::2][:max(0, int(s.gauge_bar_count))]
+    sign = -1.0 if s.stand_side == STRAIGHT_SIDE else 1.0  # the switch stand's side (left-handed)
+    for k, (xa, xb) in enumerate(chosen):
+        room = (xb - xa) - wt - 2 * 0.3  # clear of the ties' faces
+        wb = min(s.model(s.gauge_bar_width), room)
+        if wb < 0.4:
+            lay.warnings.append("A gauge bar doesn't fit between the ties; left out.")
+            continue
+        xm = (xa + xb) / 2
+        x0, x1 = xm - wb / 2, xm + wb / 2
+        w = float(turnout_bend(t, xm)) if s.gauge_bar_thrown else 0.0
+        boxes: list[Box] = []
+        holes: list[Hole] = []
+        ys = sorted((t.rail_y + w, -t.rail_y + w))
+        # Posts either side of each foot, and lips over the foot edges.
+        outer_lo = ys[0] - half_foot - c - a
+        outer_hi = ys[1] + half_foot + c + a
+        for y in ys:
+            for f in (-1, 1):
+                p_in = y + f * (half_foot + c)
+                p_out = p_in + f * a
+                boxes.append(Box(x0, x1, min(p_in, p_out), max(p_in, p_out), z0 + 0.01, z_top))
+                tip = y + f * (half_foot - over)
+                boxes.append(Box(x0, x1, min(tip, p_out - f * 0.01), max(tip, p_out - f * 0.01),
+                                 z_lip0, z_top - 0.01))
+        lo, hi = outer_lo, outer_hi
+        stand = k == 0 and s.stand_extension > 0
+        if stand:  # reach out past the rail on the switch stand side, with a bolt hole
+            ext = s.model(s.stand_extension)
+            end = (hi + ext) if sign > 0 else (lo - ext)
+            lo, hi = min(lo, end), max(hi, end)
+            d = s.stand_hole
+            yh = end - sign * (d / 2 + max(0.4, wb / 2 - d / 2))
+            holes.append(Hole(xm, yh, d, z0 - 1.0, z1 + 1.0))
+        boxes.insert(0, Box(x0, x1, lo, hi, z0, z1))
+        lay.gauge_bars.append(GaugeBar(xm, boxes, holes, stand))
 
 
 def hex_bolt(x: float, y: float, across_flats: float, z0: float, z1: float) -> Prism:

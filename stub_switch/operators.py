@@ -170,6 +170,7 @@ class STUBSWITCH_OT_export_stl(bpy.types.Operator, ExportHelper):
         elif self.export_what == "EACH":
             hint.label(text="Each rail, guard rail and the frog")
             hint.label(text="get their own files too.")
+        hint.label(text="Each gauge bar gets its own file.")
 
     def execute(self, context):
         """Write the files ``build.export_plan`` lists for each selected turnout."""

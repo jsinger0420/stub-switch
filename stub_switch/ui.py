@@ -497,6 +497,17 @@ class STUBSWITCH_PT_rail(_Panel, bpy.types.Panel):
         sub = col.row()
         sub.enabled = s.rail_on
         sub.prop(s, "heel_rails")
+        col.separator()
+        col.prop(s, "gauge_bars")
+        sub = col.column()
+        sub.enabled = s.gauge_bars
+        sub.prop(s, "gauge_bar_count", text="How Many (at most)")
+        sub.prop(s, "gauge_bar_width", text=f"Width ({_u(s)})")
+        sub.prop(s, "gauge_bar_thickness", text="Thickness (mm)")
+        sub.prop(s, "gauge_bar_clearance", text="Play (mm)")
+        sub.prop(s, "stand_extension", text=f"Stand Extension ({_u(s)})")
+        sub.prop(s, "stand_hole", text="Stand Bolt Hole (mm)")
+        col.separator()
         col.prop(s, "guard_brackets")
         sub = col.column()
         sub.enabled = s.guard_brackets and s.guard_rails

@@ -18,7 +18,7 @@ from .turnout import TurnoutSpec
 
 PROTO_LENGTH_KEYS = (
     "movable_length", "guard_length", "guard_frog_margin", "guard_flare_length",
-    "guard_bracket_length",
+    "guard_bracket_length", "gauge_bar_width", "stand_extension",
     "tie_spacing", "length_step", "headblock_extra", "headblock_tie_gap", "double_tie_gap",
     "length_jitter", "end_jitter", "stagger",
     "plate_length", "plate_width", "plate_thickness", "plate_bias",
@@ -174,6 +174,23 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
     guard_flare_angle: FloatProperty(
         name="Bend Angle", default=15.0, min=0.0, max=45.0, precision=1, update=_changed,
         description="Angle at which each guard rail end bends in toward the middle of the track")
+    gauge_bars: BoolProperty(
+        name="Gauge Bars", default=True, update=_changed,
+        description="Gauge bars across the movable rails, in the tie gaps, each hooking round "
+                    "both sides of each rail foot to hold the rails loosely in gauge. Each is "
+                    "its own object, to print separately and slide onto the rails")
+    gauge_bar_count: IntProperty(
+        name="Gauge Bars", default=4, min=1, max=4, update=_changed,
+        description="How many, at most: every other tie gap from the headblock toward the heel")
+    gauge_bar_width: _proto("Gauge Bar Width", 4.0, "Width of each gauge bar along the track")
+    gauge_bar_thickness: _model("Gauge Bar Thickness", 0.6, "Thickness of the bar under the "
+                                "rail feet")
+    gauge_bar_clearance: _model("Gauge Bar Play", 0.1,
+                                "Play round the rail foot in the hooks, so the bar slides on")
+    stand_extension: _proto("Switch Stand Extension", 24.0,
+                            "How far the first gauge bar (between the long headblock ties) "
+                            "reaches past the rail on the switch stand side, for the stand")
+    stand_hole: _model("Stand Bolt Hole", 0.8, "Diameter of the bolt hole for the switch stand")
     guard_brackets: BoolProperty(
         name="Guard Rail Brackets", default=True, update=_changed,
         description="Bolt each guard rail to its running rail through filler brackets between "
@@ -466,6 +483,11 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
             headblock_extra=f("headblock_extra"), stand_side=self.stand_side,
             headblock_tie_gap=-1.0 if self.headblock_tie_gap_auto else f("headblock_tie_gap"),
             double_tie_gap=f("double_tie_gap"),
+            gauge_bars=self.gauge_bars, gauge_bar_count=self.gauge_bar_count,
+            gauge_bar_width=f("gauge_bar_width"), gauge_bar_thickness=self.gauge_bar_thickness,
+            gauge_bar_clearance=self.gauge_bar_clearance,
+            gauge_bar_thrown=self.points_set == "DIVERGING",
+            stand_extension=f("stand_extension"), stand_hole=self.stand_hole,
             connector_width=self.connector_width, connector_height_frac=self.connector_height,
             fastening=self.fastening, hole_diameter=self.hole_diameter,
             hole_clearance=self.hole_clearance,

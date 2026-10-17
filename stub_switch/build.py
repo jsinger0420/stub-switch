@@ -44,7 +44,8 @@ from .scales import scale_label
 RESULT_NAME = "StubSwitch"
 TAG = "stub_switch"  # custom property marking the turnout's tie strip
 MOVABLE_TAG = "stub_switch_movable"  # on a rail: True for the movable rails
-PART_TAG = "stub_switch_part"  # rails ("RAIL"), guard rails ("GUARD"), frog ("FROG"), movable ties ("TIES")
+PART_TAG = "stub_switch_part"  # rails ("RAIL"), guard rails ("GUARD"), frog ("FROG"),
+# movable ties ("TIES"), gauge bars ("GAUGE_BAR")
 RAIL_MATERIAL = "Stub Switch Rail"
 SETTINGS_KEY = "stub_switch_settings"
 SEED_LIMIT = 2**31
@@ -132,7 +133,9 @@ def export_plan(strip, what: str, frog_and_guards: bool = True) -> list[tuple[st
     """
     pieces = tie_pieces(strip)
     fixed, movable = pieces[0], (pieces[1] if len(pieces) > 1 else None)
-    parts = parts_of(strip)
+    bars = [(part_role(strip, p), [p]) for p in parts_of(strip)
+            if p.get(PART_TAG) == "GAUGE_BAR"]  # printed on their own: always their own files
+    parts = [p for p in parts_of(strip) if p.get(PART_TAG) != "GAUGE_BAR"]
     moving = [p for p in parts if is_movable_rail(p)]
     others = [p for p in parts if p not in moving]
     own = [(part_role(strip, p), [p]) for p in parts]
@@ -145,8 +148,8 @@ def export_plan(strip, what: str, frog_and_guards: bool = True) -> list[tuple[st
             with_fixed = [p for p in others if p.get(PART_TAG) in ("FROG", "GUARD")]
         own = []
     if movable is None:
-        return [("ties", [fixed] + with_fixed)] + own
-    return [("fixed", [fixed] + with_fixed), ("movable", [movable])] + own
+        return [("ties", [fixed] + with_fixed)] + own + bars
+    return [("fixed", [fixed] + with_fixed), ("movable", [movable])] + own + bars
 
 
 def _new_object(name, verts, tris, coll) -> bpy.types.Object:
@@ -329,6 +332,41 @@ def _with_parts(verts, tris, parts, mirror: bool, coll):
     if len(t2) < len(tris):  # the union failed: keep the parts as separate shells
         return np.concatenate([verts, pv]), np.concatenate([tris, pt + len(verts)])
     return v2, t2
+
+
+def add_gauge_bars(lay, strip, coll, mirror: bool) -> list:
+    """Each gauge bar as an object of its own, parented to ``strip`` (they print separately)."""
+    objs = []
+    for i, bar in enumerate(lay.gauge_bars, 1):
+        first, rest = meshgen.boxes(bar.boxes[:1]), meshgen.boxes(bar.boxes[1:])
+        holes = meshgen.cylinders(bar.holes) if bar.holes else None
+        if mirror:
+            first, rest = meshgen.mirror_y(first), meshgen.mirror_y(rest)
+            holes = meshgen.mirror_y(holes) if holes is not None else None
+        name = f"{strip.name} Gauge Bar {i}"
+        # Join the bar and its hooks (one box each) and cut the stand's bolt hole.
+        base = _new_object(name, *first, coll)
+        add = _new_object("_ss_bar_hooks", *rest, coll)
+        cut = [_new_object("_ss_bar_hole", *holes, coll)] if holes is not None else []
+        try:
+            verts, tris = _boolean(base, [add], cut, _solver())
+        finally:
+            for o in [add] + cut:
+                mesh = o.data
+                bpy.data.objects.remove(o)
+                bpy.data.meshes.remove(mesh)
+        if len(tris) == 0:  # keep the pieces as they are rather than nothing
+            verts, tris = meshgen.combine(first, rest)
+        old = base.data
+        base.data = wb_bridge.mesh_from_arrays(name, verts, tris)
+        bpy.data.meshes.remove(old)
+        _clean(base.data)
+        _shade(base.data)
+        base.parent = strip
+        base[PART_TAG] = "GAUGE_BAR"
+        base["stand_extension"] = bar.stand
+        objs.append(base)
+    return objs
 
 
 def add_frog(info, t, lay, strip, coll, mirror: bool) -> tuple[object, str]:
@@ -544,6 +582,10 @@ def generate(context, progress=None) -> BuildResult:
                 warnings.append("The frog has a base plate, which sits below the rail seat; "
                                 "make its thickness match the tie plates (or turn it off in the "
                                 "frog preset) so the frog sits flat.")
+    if lay.gauge_bars:
+        bars = add_gauge_bars(lay, base, coll, mirror)
+        if bars:
+            added.append(f"{len(bars)} gauge bar{'s' if len(bars) != 1 else ''}")
     s.last_report = (f"{base.name} (seed {seed}): {len(lay.ties)} ties, "
                      f"{info_out['triangles']:,} triangles, {info_out['seconds']:.1f} s."
                      + (f" Added {' and '.join(added)}." if added else ""))

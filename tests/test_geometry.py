@@ -617,3 +617,78 @@ class TestGuardBrackets(unittest.TestCase):
                 yg = np.interp(v[:, 0].mean(), self.t.rails[name][:, 0],
                                self.t.rails[name][:, 1])
                 self.assertGreater(sign * (v[:, 1].mean() - yg), self.rail.web / 2)
+
+
+class TestGaugeBars(unittest.TestCase):
+    """Gauge bars across the movable rails (layout._gauge_bars)."""
+
+    def setUp(self):
+        tc = TestLayout()
+        tc.setUp()
+        self.t = tc.t
+        self.kw = dict(foot_edge=0.17, foot_web=0.36, web_width=0.42)
+        self.lay = layout.compute(self.t, ho_ties(**self.kw))
+
+    def test_every_other_gap_from_the_long_ties(self):
+        """Four bars: the gap between the long ties, then every other gap toward the heel."""
+        lay, t = self.lay, self.t
+        self.assertEqual(len(lay.gauge_bars), 4)
+        long_ties = sorted(tie.x for tie in lay.ties if tie.headblock)
+        self.assertAlmostEqual(lay.gauge_bars[0].x, sum(long_ties) / 2)
+        xs = lay.tie_x
+        gaps = [(a + b) / 2 for a, b in zip(xs, xs[1:])]
+        i0 = gaps.index(min(gaps, key=lambda g: abs(g - lay.gauge_bars[0].x)))
+        for k, bar in enumerate(lay.gauge_bars):
+            self.assertAlmostEqual(bar.x, gaps[i0 - 2 * k])
+            self.assertGreater(bar.x, -t.movable_length)
+        few = layout.compute(t, ho_ties(gauge_bar_count=2, **self.kw))
+        self.assertEqual(len(few.gauge_bars), 2)
+        none = layout.compute(t, ho_ties(gauge_bars=False, **self.kw))
+        self.assertEqual(none.gauge_bars, [])
+
+    def test_under_the_feet_and_between_the_ties(self):
+        """Each bar is under the rail feet, above the connectors, clear of the tie faces."""
+        lay = self.lay
+        wt, hc = lay.tie_width, 0.5 * lay.tie_height
+        for bar in lay.gauge_bars:
+            body = bar.boxes[0]
+            self.assertAlmostEqual(body.z1, lay.seat - 0.1)
+            self.assertGreater(body.z0, hc)
+            near = sorted(lay.ties, key=lambda tie: abs(tie.x - bar.x))[:2]
+            for b in bar.boxes:
+                for tie in near:  # never over a tie
+                    self.assertTrue(b.x1 <= tie.x - wt / 2 - 0.29 or b.x0 >= tie.x + wt / 2 + 0.29)
+
+    def test_hooks_round_each_foot(self):
+        """Posts either side of each foot with play; lips over the foot, clear of the web."""
+        lay, t = self.lay, self.t
+        hf = 1.855 / 2
+        for bar in lay.gauge_bars:
+            posts = [b for b in bar.boxes[1:] if b.z0 < lay.seat]
+            lips = [b for b in bar.boxes[1:] if b.z0 >= lay.seat]
+            self.assertEqual((len(posts), len(lips)), (4, 4))
+            for y in (t.rail_y, -t.rail_y):
+                near = sorted(posts, key=lambda b: abs((b.y0 + b.y1) / 2 - y))[:2]
+                inner = sorted([b.y1 for b in near if b.y1 < y] + [b.y0 for b in near if b.y0 > y])
+                self.assertAlmostEqual(inner[0], y - hf - 0.1)
+                self.assertAlmostEqual(inner[1], y + hf + 0.1)
+            for b in lips:
+                self.assertGreater(b.z0, lay.seat + 0.17)  # above the foot edge
+                y = t.rail_y if (b.y0 + b.y1) > 0 else -t.rail_y
+                self.assertGreater(min(abs(b.y0 - y), abs(b.y1 - y)), 0.21 + 0.09)  # off the web
+
+    def test_switch_stand_extension(self):
+        """Only the first bar reaches out to the switch stand side, with a bolt hole near its end."""
+        lay, t = self.lay, self.t
+        first, rest = lay.gauge_bars[0], lay.gauge_bars[1:]
+        self.assertTrue(first.stand)
+        self.assertFalse(any(b.stand or b.holes for b in rest))
+        body = first.boxes[0]
+        other = rest[0].boxes[0]
+        self.assertAlmostEqual(other.y0 - body.y0, 24 * IN / N)  # stand on the straight side (-y)
+        self.assertAlmostEqual(body.y1, other.y1)
+        (h,) = first.holes
+        self.assertGreater(h.y - h.d / 2, body.y0)
+        self.assertLess(h.y, body.y0 + 1.5)
+        div = layout.compute(t, ho_ties(stand_side=layout.DIVERGING_SIDE, **self.kw))
+        self.assertAlmostEqual(div.gauge_bars[0].boxes[0].y1 - other.y1, 24 * IN / N)
