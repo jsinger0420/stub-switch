@@ -18,6 +18,7 @@ from .turnout import TurnoutSpec
 
 PROTO_LENGTH_KEYS = (
     "movable_length", "guard_length", "guard_frog_margin", "guard_flare_length",
+    "guard_bracket_length",
     "tie_spacing", "length_step", "headblock_extra", "headblock_tie_gap", "double_tie_gap",
     "length_jitter", "end_jitter", "stagger",
     "plate_length", "plate_width", "plate_thickness", "plate_bias",
@@ -173,6 +174,21 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
     guard_flare_angle: FloatProperty(
         name="Bend Angle", default=15.0, min=0.0, max=45.0, precision=1, update=_changed,
         description="Angle at which each guard rail end bends in toward the middle of the track")
+    guard_brackets: BoolProperty(
+        name="Guard Rail Brackets", default=True, update=_changed,
+        description="Bolt each guard rail to its running rail through filler brackets between "
+                    "the rail webs. The brackets, washers and nuts are part of the guard rail; "
+                    "the rounded bolt heads, on the field side, are part of the running rail. "
+                    "The brackets stay below the wheel flanges")
+    guard_bracket_count: IntProperty(
+        name="Brackets", default=2, min=1, max=8, update=_changed,
+        description="Brackets on each guard rail, spread along its straight part; each has "
+                    "two bolts")
+    guard_bracket_length: _proto("Bracket Length", 18.0,
+                                 "Length of each guard rail bracket along the rail")
+    flange_depth: _model("Flange Depth", 0.0,
+                         "The deepest wheel flange the brackets must clear, below the rail top; "
+                         "0 uses the NMRA RP-25 depth for the scale (HO 0.71 mm, N 0.56 mm)")
 
     # ---- template tie (Weathered Board) ----
     tie_source: EnumProperty(

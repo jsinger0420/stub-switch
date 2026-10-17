@@ -38,7 +38,7 @@ import bmesh
 import bpy
 import numpy as np
 
-from . import frog_bridge, geom2d, layout, meshgen, prefs, turnout, wb_bridge
+from . import frog_bridge, geom2d, guard_hardware, layout, meshgen, prefs, turnout, wb_bridge
 from .scales import scale_label
 
 RESULT_NAME = "StubSwitch"
@@ -259,8 +259,10 @@ def add_rails(s, info, t, lay, strip, coll, mirror: bool,
     if s.points_set == "DIVERGING":
         rails.update(t.thrown_rails)
     mat = _rail_material()
+    extras, warn = _guard_hardware(s, info, t, lay, rails) if s.guard_brackets else ({}, "")
     objs = []
     for name, pts in rails.items():
+        key = name
         guard = name.startswith("Guard")
         if guards_only and not guard:
             continue
@@ -277,14 +279,56 @@ def add_rails(s, info, t, lay, strip, coll, mirror: bool,
             return objs, f"Rail '{name}' not added: {err}"
         verts = np.array(md.vertices, dtype=np.float64)
         tris = np.array(md.triangles(), dtype=np.int32)
+        if extras.get(key):
+            verts, tris = _with_parts(verts, tris, extras[key], mirror, coll)
         obj = _new_object(f"{strip.name} {name}", verts, tris, coll)
+        if extras.get(key):
+            _shade(obj.data, 35.0)  # rounded head corners smooth, web and foot flat
         obj.data.materials.append(mat)
         obj.parent = strip
         obj[PART_TAG] = "GUARD" if guard else "RAIL"
         obj[MOVABLE_TAG] = name.startswith("Movable")
         obj["rail_length_mm"] = round(float(geom2d.lengths(pts)[-1]), 3)
         objs.append(obj)
-    return objs, ""
+    return objs, warn
+
+
+def _guard_hardware(s, info, t, lay, rails) -> tuple[dict, str]:
+    """The guard rail brackets, nuts and washers and the running rails' bolt heads, by rail."""
+    p = info.profile
+    rail = guard_hardware.RailSize(
+        height=p.height, head_width=p.head_width, head_depth=p.head_depth, web=p.web_thickness,
+        base_width=p.base_width, base_thickness=p.base_thickness,
+        base_edge=p.base_edge_thickness)
+    spec = s.turnout_spec(info)
+    b = guard_hardware.BracketSpec(
+        scale_n=s.scale_n(), flangeway=info.flangeway, count=s.guard_bracket_count,
+        length=s.full_mm("guard_bracket_length"), flange_depth=s.flange_depth,
+        scale_name=info.scale or s.scale, flare_length=spec.model(spec.guard_flare_length))
+    guards = {k: rails[k] for k in guard_hardware.RUNNING_RAIL if k in rails}
+    out, warnings = guard_hardware.hardware(guards, b, rail, lay.seat)
+    return out, " ".join(warnings)
+
+
+def _with_parts(verts, tris, parts, mirror: bool, coll):
+    """A rail's mesh joined (Manifold union) with its brackets, nuts or bolt heads."""
+    if mirror:
+        parts = [guard_hardware.mirror(v, t) for v, t in parts]
+    pv = np.concatenate([v for v, _t in parts])
+    offs = np.cumsum([0] + [len(v) for v, _t in parts[:-1]])
+    pt = np.concatenate([t + o for (_v, t), o in zip(parts, offs)])
+    base = _new_object("_ss_rail", verts, tris, coll)
+    add = _new_object("_ss_rail_parts", pv, pt, coll)
+    try:
+        v2, t2 = _boolean(base, [add], [], _solver())
+    finally:
+        for o in (base, add):
+            mesh = o.data
+            bpy.data.objects.remove(o)
+            bpy.data.meshes.remove(mesh)
+    if len(t2) < len(tris):  # the union failed: keep the parts as separate shells
+        return np.concatenate([verts, pv]), np.concatenate([tris, pt + len(verts)])
+    return v2, t2
 
 
 def add_frog(info, t, lay, strip, coll, mirror: bool) -> tuple[object, str]:
@@ -346,14 +390,14 @@ def _piece(name, ties, parts, holes, coll, solver):
     return base, edges, solver
 
 
-def _shade(mesh: bpy.types.Mesh) -> None:
+def _shade(mesh: bpy.types.Mesh, angle: float = 60.0) -> None:
     """Smooth the weathered wood but keep flat faces flat (smooth by angle, 60 degrees).
 
     Fully smooth shading spreads the light across the big flat faces of the
     connectors and plates, which then show odd light and dark triangles.
     """
     try:
-        mesh.set_sharp_from_angle(angle=math.radians(60.0))
+        mesh.set_sharp_from_angle(angle=math.radians(angle))
     except (AttributeError, TypeError):
         mesh.shade_flat()
 

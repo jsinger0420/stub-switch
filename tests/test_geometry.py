@@ -555,3 +555,65 @@ class TestWithFrogPresets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGuardBrackets(unittest.TestCase):
+    """Guard rail brackets and bolts (guard_hardware.py)."""
+
+    def setUp(self):
+        from stub_switch import guard_hardware as gh
+        self.gh = gh
+        tc = TestLayout()
+        tc.setUp()
+        self.t = tc.t
+        self.rail = gh.RailSize(height=2.108, head_width=0.97, head_depth=0.632, web=0.42,
+                                base_width=1.855, base_thickness=0.36, base_edge=0.17)
+        self.b = gh.BracketSpec(scale_n=N, flangeway=1.27, flare_length=18 * IN / N)
+        self.seat = 2.26
+        guards = {k: self.t.rails[k] for k in ("Guard L", "Guard R")}
+        self.out, self.warn = gh.hardware(guards, self.b, self.rail, self.seat)
+
+    def test_parts_on_each_rail(self):
+        """Two brackets per guard, each with two washers and nuts; bolt heads on the running rails."""
+        self.assertEqual(self.warn, [])
+        self.assertEqual(len(self.out["Guard L"]), 2 * (1 + 2 * 2))
+        self.assertEqual(len(self.out["Guard R"]), 2 * (1 + 2 * 2))
+        self.assertEqual(len(self.out["Outer L"]), 4)
+        self.assertEqual(len(self.out["Stock R"]), 4)
+        for parts in self.out.values():
+            for v, t in parts:
+                self.assertEqual(meshgen.open_edges(t), 0)
+                self.assertGreater(meshgen.signed_volume(v, t), 0)
+
+    def test_brackets_clear_the_flanges(self):
+        """Each bracket stays below the deepest flange (and the heads), between the rail webs."""
+        top_rail = self.seat + self.rail.height
+        for v, _t in self.out["Guard R"][::5]:  # the brackets
+            self.assertLessEqual(v[:, 2].max(), top_rail - 0.71 - 0.1 + 1e-9)
+            self.assertLess(v[:, 2].max(), top_rail - self.rail.head_depth)
+            # between the webs: from the guard rail's web to the stock rail's
+            yg = np.interp(v[:, 0].mean(), self.t.rails["Guard R"][:, 0],
+                           self.t.rails["Guard R"][:, 1])
+            self.assertAlmostEqual(v[:, 1].max(), yg - self.rail.web / 2 + 0.02, places=6)
+            self.assertAlmostEqual(v[:, 1].min(),
+                                   yg - (1.27 + 0.97) + self.rail.web / 2 - 0.02, places=6)
+        deep = self.gh.BracketSpec(scale_n=N, flangeway=1.27, flange_depth=1.0,
+                                   flare_length=18 * IN / N)
+        self.assertAlmostEqual(self.gh.bracket_top(deep, self.rail), self.rail.height - 1.1)
+
+    def test_bolt_heads_outside_nuts_inside(self):
+        """Rounded heads on the running rails' field side; nuts on the guards' track-centre side."""
+        for v, _t in self.out["Stock R"]:
+            self.assertLess(v[:, 1].max(), -self.t.rail_y - self.rail.web / 2 + 0.03)
+        for v, _t in self.out["Outer L"]:
+            yr = np.interp(v[:, 0].mean(), self.t.rails["Outer L"][:, 0],
+                           self.t.rails["Outer L"][:, 1])
+            self.assertGreater(v[:, 1].min(), yr + self.rail.web / 2 - 0.06)  # rail on a slant
+        for parts, sign in ((self.out["Guard R"], 1), (self.out["Guard L"], -1)):
+            for k, (v, _t) in enumerate(parts):
+                if k % 5 == 0:
+                    continue  # a bracket
+                name = "Guard R" if sign > 0 else "Guard L"
+                yg = np.interp(v[:, 0].mean(), self.t.rails[name][:, 0],
+                               self.t.rails[name][:, 1])
+                self.assertGreater(sign * (v[:, 1].mean() - yg), self.rail.web / 2)

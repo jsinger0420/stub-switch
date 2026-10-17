@@ -497,6 +497,12 @@ class STUBSWITCH_PT_rail(_Panel, bpy.types.Panel):
         sub = col.row()
         sub.enabled = s.rail_on
         sub.prop(s, "heel_rails")
+        col.prop(s, "guard_brackets")
+        sub = col.column()
+        sub.enabled = s.guard_brackets and s.guard_rails
+        sub.prop(s, "guard_bracket_count")
+        sub.prop(s, "guard_bracket_length", text=f"Bracket Length ({_u(s)})")
+        sub.prop(s, "flange_depth", text="Flange Depth (mm, 0 = by scale)")
         col.prop(s, "frog_on")
         info, err = s.frog()
         if s.frog_on and info is not None and info.base_plate:
