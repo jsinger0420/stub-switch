@@ -367,8 +367,9 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
     switch_modified: BoolProperty(default=False, options={"HIDDEN"})
     export_what: EnumProperty(  # the last choice made in Export STL's file browser
         name="Export", default="TIES", options={"HIDDEN"},
-        items=[("TIES", "Ties Only", ""), ("TIES_FROG", "Ties, Frog and Guard Rails", ""),
-               ("ALL", "Entire Turnout", ""), ("RAIL", "Rail and Frog", "")])
+        items=[("ENTIRE", "Entire Switch", ""), ("TIES", "Tie Strips Only", ""),
+               ("EACH", "Every Object to Its Own File", "")])
+    export_frog_and_guards: BoolProperty(default=True, options={"HIDDEN"})
     export_template: StringProperty(
         name="File Name", default="stub_switch_{scale}_{frog}_{hand}.stl",
         description="Default STL file name; {scale}, {frog} and {hand} are filled in")
@@ -518,7 +519,7 @@ class STUBSWITCH_Settings(bpy.types.PropertyGroup):
     def switch_values(self) -> dict:
         """Every setting, for a switch preset (the template tie object is stored by name)."""
         skip = {"rna_type", "name", "proto_units_prev", "plate_modified", "switch_preset",
-                "switch_modified", "last_report", "export_what", "tie_object", "show_info"}
+                "switch_modified", "last_report", "export_what", "export_frog_and_guards", "tie_object", "show_info"}
         out = {p.identifier: getattr(self, p.identifier)
                for p in self.bl_rna.properties if p.identifier not in skip}
         out["tie_object_name"] = self.tie_object.name if self.tie_object else ""

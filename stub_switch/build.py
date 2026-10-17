@@ -43,6 +43,7 @@ from .scales import scale_label
 
 RESULT_NAME = "StubSwitch"
 TAG = "stub_switch"  # custom property marking the turnout's tie strip
+MOVABLE_TAG = "stub_switch_movable"  # on a rail: True for the movable rails
 PART_TAG = "stub_switch_part"  # rails ("RAIL"), guard rails ("GUARD"), frog ("FROG"), movable ties ("TIES")
 RAIL_MATERIAL = "Stub Switch Rail"
 SETTINGS_KEY = "stub_switch_settings"
@@ -102,20 +103,50 @@ def selected_switches(context) -> list:
     return out
 
 
-def export_objects(strip, what: str) -> list:
-    """What to export for ``strip``.
+EXPORT_ENTIRE, EXPORT_TIES, EXPORT_EACH = "ENTIRE", "TIES", "EACH"
 
-    "ALL": tie strip, rails and frog. "TIES": the tie strip. "TIES_FROG":
-    the tie strip, frog and guard rails, for modelers who lay their own
-    rail. "RAIL": the rails and frog.
+
+def is_movable_rail(obj) -> bool:
+    """True for a movable rail (each is printed or bent on its own)."""
+    if obj.get(PART_TAG) != "RAIL":
+        return False
+    tag = obj.get(MOVABLE_TAG)
+    return bool(tag) if tag is not None else " Movable " in f" {obj.name} "
+
+
+def part_role(strip, part) -> str:
+    """A part's name without its turnout's name, e.g. "Movable L" or "Frog"."""
+    name = part.name
+    return (name[len(strip.name):].strip() if name.startswith(strip.name) else "") or name
+
+
+def export_plan(strip, what: str, frog_and_guards: bool = True) -> list[tuple[str, list]]:
+    """The files to write for ``strip``: (file name suffix, objects in that file).
+
+    The tie strip is always two files, "fixed" and "movable" (one, "ties",
+    for a turnout generated in one piece). "ENTIRE": the fixed file also
+    holds every fixed rail, the guard rails and the frog; each movable rail
+    is a file of its own. "TIES": just the tie strip, with the frog and
+    guard rails in the fixed file if ``frog_and_guards``. "EACH": every
+    object (tie pieces, rails, guard rails, frog) in a file of its own.
     """
-    if what == "TIES":
-        return tie_pieces(strip)
+    pieces = tie_pieces(strip)
+    fixed, movable = pieces[0], (pieces[1] if len(pieces) > 1 else None)
     parts = parts_of(strip)
-    if what == "TIES_FROG":
-        extra = [o for o in parts if o.get(PART_TAG) in ("FROG", "GUARD")]
-        return tie_pieces(strip) + extra if extra else []
-    return parts if what == "RAIL" else tie_pieces(strip) + parts
+    moving = [p for p in parts if is_movable_rail(p)]
+    others = [p for p in parts if p not in moving]
+    own = [(part_role(strip, p), [p]) for p in parts]
+    with_fixed = []
+    if what == EXPORT_ENTIRE:
+        with_fixed = others
+        own = [(part_role(strip, p), [p]) for p in moving]
+    elif what == EXPORT_TIES:
+        if frog_and_guards:
+            with_fixed = [p for p in others if p.get(PART_TAG) in ("FROG", "GUARD")]
+        own = []
+    if movable is None:
+        return [("ties", [fixed] + with_fixed)] + own
+    return [("fixed", [fixed] + with_fixed), ("movable", [movable])] + own
 
 
 def _new_object(name, verts, tris, coll) -> bpy.types.Object:
@@ -250,6 +281,7 @@ def add_rails(s, info, t, lay, strip, coll, mirror: bool,
         obj.data.materials.append(mat)
         obj.parent = strip
         obj[PART_TAG] = "GUARD" if guard else "RAIL"
+        obj[MOVABLE_TAG] = name.startswith("Movable")
         obj["rail_length_mm"] = round(float(geom2d.lengths(pts)[-1]), 3)
         objs.append(obj)
     return objs, ""

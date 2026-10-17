@@ -107,12 +107,14 @@ class STUBSWITCH_OT_new_seed(bpy.types.Operator):
 
 
 EXPORT_WHAT = [
-    ("TIES", "Ties Only", "Just the tie strip, ready to print"),
-    ("TIES_FROG", "Ties, Frog and Guard Rails",
-     "The tie strip with the frog and guard rails, so you can lay your own rail "
-     "(needs Include Frog)"),
-    ("ALL", "Entire Turnout", "Tie strip, rails, guard rails and frog"),
-    ("RAIL", "Rail and Frog", "Just the rails, guard rails and the frog"),
+    ("ENTIRE", "Entire Switch",
+     "The fixed rail section with all its rails, guard rails and the frog in one file, the "
+     "movable rail section's ties in another, and each movable rail in a file of its own"),
+    ("TIES", "Tie Strips Only",
+     "The movable and fixed rail sections' tie strips, two files; optionally with the frog and "
+     "guard rails in the fixed section's file, so you can lay your own rail"),
+    ("EACH", "Every Object to Its Own File",
+     "Each tie strip section, rail, guard rail and the frog in a file of its own"),
 ]
 
 
@@ -122,7 +124,7 @@ def _safe(name: str) -> str:
 
 
 class STUBSWITCH_OT_export_stl(bpy.types.Operator, ExportHelper):
-    """Export the selected stub switches (ties, rail and frog, or a part) as STL files in millimetres"""
+    """Export the selected stub switches as STL files in millimetres: the tie strip as two files (movable and fixed rail sections), with the rails and frog as you choose"""
 
     bl_idname = "stub_switch.export_stl"
     bl_label = "Export STL"
@@ -130,10 +132,10 @@ class STUBSWITCH_OT_export_stl(bpy.types.Operator, ExportHelper):
     filter_glob: StringProperty(default="*.stl", options={"HIDDEN"})
     export_what: EnumProperty(name="Export", items=EXPORT_WHAT, default="TIES",
                               description="What to write for each selected turnout")
-    separate_pieces: BoolProperty(
-        name="Each Tie Piece to Its Own File", default=True,
-        description="For a tie strip printed in two pieces: write the fixed rail piece and the "
-                    "movable rail piece to separate files, ending _fixed and _movable")
+    frog_and_guards: BoolProperty(
+        name="Include Frog and Guard Rails", default=True,
+        description="Tie Strips Only: put the frog and guard rails in the fixed rail section's "
+                    "file (needs Include Frog)")
 
     @classmethod
     def poll(cls, context):
@@ -142,9 +144,11 @@ class STUBSWITCH_OT_export_stl(bpy.types.Operator, ExportHelper):
 
     def invoke(self, context, event):
         """Open the file browser on the default file name, next to the .blend file."""
+        s = _settings(context)
         folder = os.path.dirname(bpy.data.filepath) if bpy.data.filepath else os.path.expanduser("~")
-        self.filepath = os.path.join(folder, build.file_name(_settings(context)))
-        self.export_what = _settings(context).export_what
+        self.filepath = os.path.join(folder, build.file_name(s))
+        self.export_what = s.export_what
+        self.frog_and_guards = s.export_frog_and_guards
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
@@ -153,58 +157,50 @@ class STUBSWITCH_OT_export_stl(bpy.types.Operator, ExportHelper):
         col = self.layout.column()
         col.label(text="Export:")
         col.prop(self, "export_what", expand=True)
+        sub = col.column()
+        sub.enabled = self.export_what == "TIES"
+        sub.prop(self, "frog_and_guards")
         col.separator()
-        sub = col.row()
-        sub.enabled = self.export_what != "RAIL"
-        sub.prop(self, "separate_pieces")
-        col.separator()
-        _hint = col.column()
-        _hint.scale_y = 0.8
-        _hint.label(text="Each rail, guard rail and the frog", icon="INFO")
-        _hint.label(text="are written to their own files,")
-        _hint.label(text="named after the file name chosen.")
+        hint = col.column()
+        hint.scale_y = 0.8
+        hint.label(text="The tie strip is written as two", icon="INFO")
+        hint.label(text="files, ending _fixed and _movable.")
+        if self.export_what == "ENTIRE":
+            hint.label(text="Each movable rail gets its own file.")
+        elif self.export_what == "EACH":
+            hint.label(text="Each rail, guard rail and the frog")
+            hint.label(text="get their own files too.")
 
     def execute(self, context):
-        """Write the chosen parts of the selected turnouts: the tie strip (one file, or one per
-        piece) and every rail, guard rail and frog in a file of its own."""
-        if _settings(context).export_what != self.export_what:
-            _settings(context).export_what = self.export_what
+        """Write the files ``build.export_plan`` lists for each selected turnout."""
+        s = _settings(context)
+        if s.export_what != self.export_what:
+            s.export_what = self.export_what
+        if s.export_frog_and_guards != self.frog_and_guards:
+            s.export_frog_and_guards = self.frog_and_guards
         switches = build.selected_switches(context)
-        groups = [(obj, build.export_objects(obj, self.export_what)) for obj in switches]
-        groups = [(obj, objs) for obj, objs in groups if objs]
-        if not groups:
-            self.report({"ERROR"}, "The selected turnouts have no frog to export. Tick Include "
-                                   "Frog (Rail and Frog panel) and generate them again."
-                        if self.export_what == "TIES_FROG" else
-                        "The selected turnouts have no rail or frog. Tick Include Rail or "
-                        "Include Frog and generate them again.")
-            return {"CANCELLED"}
         stem, ext = os.path.splitext(self.filepath)
-        count = 0
+        count, missing = 0, []
         try:
-            for obj, objs in groups:
-                base = stem if len(groups) == 1 else f"{stem}_{_safe(obj.name)}"
-                pieces = [o for o in build.tie_pieces(obj) if o in objs]
-                parts = [o for o in objs if o not in pieces]
-                if len(pieces) > 1 and self.separate_pieces:
-                    for label, piece in zip(("fixed", "movable"), pieces):
-                        build.export_stl(context, [piece], f"{base}_{label}{ext}")
-                        count += 1
-                elif pieces:
-                    build.export_stl(context, pieces, f"{base}{ext}")
-                    count += 1
-                for part in parts:  # every rail, guard rail and the frog on its own
-                    role = (part.name[len(obj.name):].strip()
-                            if part.name.startswith(obj.name) else "") or part.name
-                    build.export_stl(context, [part], f"{base}_{_safe(role)}{ext}")
+            for obj in switches:
+                base = stem if len(switches) == 1 else f"{stem}_{_safe(obj.name)}"
+                kinds = {p.get(build.PART_TAG) for p in build.parts_of(obj)}
+                if self.export_what == "ENTIRE" and "RAIL" not in kinds:
+                    missing.append(f"{obj.name} has no rail (tick Include Rail)")
+                if self.export_what == "TIES" and self.frog_and_guards and "FROG" not in kinds:
+                    missing.append(f"{obj.name} has no frog (tick Include Frog)")
+                for suffix, objs in build.export_plan(obj, self.export_what,
+                                                      self.frog_and_guards):
+                    build.export_stl(context, objs, f"{base}_{_safe(suffix)}{ext}")
                     count += 1
         except RuntimeError as err:
             self.report({"ERROR"}, f"Export failed: {err}")
             return {"CANCELLED"}
-        written = (os.path.basename(self.filepath) if count == 1
-                   else f"{count} files next to {os.path.basename(self.filepath)}")
         what = dict((k, n) for k, n, _d in EXPORT_WHAT)[self.export_what].lower()
-        self.report({"INFO"}, f"Exported {what} for {len(groups)} turnout(s) to {written}")
+        note = (". " + "; ".join(missing)) if missing else ""
+        self.report({"WARNING"} if missing else {"INFO"},
+                    f"Exported {what} for {len(switches)} turnout(s): {count} files starting "
+                    f"{os.path.basename(stem)}{note}")
         return {"FINISHED"}
 
 
